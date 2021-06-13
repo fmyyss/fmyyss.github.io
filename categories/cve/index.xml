@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>CVE on FMYY&#39;S Note</title>
+    <link>https://note.fmyy.pro/categories/cve/</link>
+    <description>Recent content in CVE on FMYY&#39;S Note</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-us</language>
+    <lastBuildDate>Tue, 02 Feb 2021 16:13:10 +0800</lastBuildDate><atom:link href="https://note.fmyy.pro/categories/cve/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>以两个Sudo指令缓冲区溢出CVE进行分析</title>
+      <link>https://note.fmyy.pro/articles/cve-2021-3156%E5%8F%8Acve-2019-18634%E5%88%86%E6%9E%90/</link>
+      <pubDate>Tue, 02 Feb 2021 16:13:10 +0800</pubDate>
+      
+      <guid>https://note.fmyy.pro/articles/cve-2021-3156%E5%8F%8Acve-2019-18634%E5%88%86%E6%9E%90/</guid>
+      <description>sudo是一个大多数Linux或者Unix操作系统中都存在的系统管理指令,是一个允许系统管理员让普通用户执行一些或者全部的root命令的工具.
+此次以CVE-2021-3156和CVE-2019-18634两个Sudo指令的缓冲区溢出漏洞进行分析
+CVE-2021-3156 影响范围 Sudo 1.8.2 - 1.8.31p2 Sudo 1.9.0 - 1.9.5p1  如何检测自己系统是否存在此漏洞？ 终端输入 命令 &amp;quot;sudoedit -s /&amp;quot;后执行 会出现以下两种情况
+ 若出现&amp;quot;sudoedit：&amp;ldquo;开头的错误响应,则系统受到此漏洞影响. 若出现&amp;quot;usage：&amp;ldquo;开头的错误响应,则表示该漏洞已被补丁修复.  调试 此处选择了Sudo-1.8.31版本的Sudo程序来进行复现,最开始我是编译了一遍sudo源码来进行调试,结果编译出来的sudo程序和ubuntu系统自带的sudo有点不一样,所以最后我还是直接调试的ubuntu系统自带的sudo,只是没有源码断点不太方便
+1 2 3 4 5 6 7  gdb ./sudoedit ...... pwndbg&amp;gt; set args -s &amp;#39;\&amp;#39; 112233445566 // 设置参数 pwndbg&amp;gt; run ... pwndbg&amp;gt; b ./sudoers.c:847 pwndbg&amp;gt; run   漏洞位置位于plugins/sudoers/sudoers.c代码文件set_cmnd函数中
+因为可能文件代码是动态加载的,所以当程序crash的时候,才可以下断点,然后重新运行,最后会断在断点位置
+漏洞代码 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30  .</description>
+    </item>
+    
+  </channel>
+</rss>

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Kernel Pwn on FMYY&#39;S Note</title>
+    <link>https://note.fmyy.pro/categories/kernel-pwn/</link>
+    <description>Recent content in Kernel Pwn on FMYY&#39;S Note</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-us</language>
+    <lastBuildDate>Mon, 14 Jun 2021 00:58:03 +0800</lastBuildDate><atom:link href="https://note.fmyy.pro/categories/kernel-pwn/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>2021年第五届强网杯-NoteBook</title>
+      <link>https://note.fmyy.pro/articles/qwb2021-notebook/</link>
+      <pubDate>Mon, 14 Jun 2021 00:58:03 +0800</pubDate>
+      
+      <guid>https://note.fmyy.pro/articles/qwb2021-notebook/</guid>
+      <description>忙活三个多小时才将漏洞利用的附件上传到服务器上的靶机中
+题目分析 Qemu启动脚本 1 2 3 4 5 6 7 8 9 10 11 12 13  qemu-system-x86_64 \ -m 64M \ -kernel bzImage \ -initrd rootfs.cpio \ -append &amp;#34;loglevel=3 console=ttyS0 oops=panic panic=1 kaslr&amp;#34; \ -nographic \ -net user \ -net nic \ -device e1000 \ -smp cores=2,threads=2 \ -cpu kvm64,+smep,+smap \ -monitor /dev/null 2&amp;gt;/dev/null \ -s   开启以下保护
+SMEP: 管理模式执行保护,保护内核是其不允许执行用户空间代码 SMAP: 管理模式访问保护,禁止内核访问用户空间的数据 KASLR: 内核地址随机化 同时,镜像以多线程形式启动  文件系统初始化 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30  #!</description>
+    </item>
+    
+    <item>
+      <title>StarCTF2019_Hackme</title>
+      <link>https://note.fmyy.pro/articles/starctf2019_hackme/</link>
+      <pubDate>Mon, 25 Jan 2021 13:33:16 +0800</pubDate>
+      
+      <guid>https://note.fmyy.pro/articles/starctf2019_hackme/</guid>
+      <description>此次选择StarCTF2019的Hackme题目来分析
+题目分析 Qemu启动脚本 1 2 3 4 5 6 7 8 9 10 11  #! /bin/sh qemu-system-x86_64 \  -m 256M \  -nographic -net user -net nic \  -kernel bzImage \  -append &amp;#39;console=ttyS0 loglevel=3 oops=panic panic=1 kaslr&amp;#39; \  -monitor /dev/null 2&amp;gt;/dev/null \  -initrd initramfs.cpio \  -smp cores=2,threads=2 \  -cpu qemu64,smep,smap \  -s   开启以下保护
+SMEP: 管理模式执行保护,保护内核是其不允许执行用户空间代码 SMAP: 管理模式访问保护,禁止内核访问用户空间的数据 KASLR: 内核地址随机化 同时,镜像以多线程形式启动  /etc/init.</description>
+    </item>
+    
+  </channel>
+</rss>

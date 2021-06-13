@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>KPTI on FMYY&#39;S Note</title>
+    <link>https://note.fmyy.pro/tags/kpti/</link>
+    <description>Recent content in KPTI on FMYY&#39;S Note</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-us</language>
+    <lastBuildDate>Mon, 01 Feb 2021 22:28:42 +0800</lastBuildDate><atom:link href="https://note.fmyy.pro/tags/kpti/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>通过DASCTF&amp;HWS赛题babycall来探究绕过KPTI保护</title>
+      <link>https://note.fmyy.pro/articles/%E9%80%9A%E8%BF%87dasctfhws%E8%B5%9B%E9%A2%98babycall%E6%9D%A5%E6%8E%A2%E7%A9%B6%E7%BB%95%E8%BF%87kpti%E4%BF%9D%E6%8A%A4/</link>
+      <pubDate>Mon, 01 Feb 2021 22:28:42 +0800</pubDate>
+      
+      <guid>https://note.fmyy.pro/articles/%E9%80%9A%E8%BF%87dasctfhws%E8%B5%9B%E9%A2%98babycall%E6%9D%A5%E6%8E%A2%E7%A9%B6%E7%BB%95%E8%BF%87kpti%E4%BF%9D%E6%8A%A4/</guid>
+      <description>题目是DASCTF2021年1月末联合HWS出的题,其中babycall有个以前没注意到的考点,下面以分析此题来探究如何绕过KPTI保护
+题目分析 Qemu启动脚本 1 2 3 4 5 6 7 8  #!/bin/bash qemu-system-x86_64 \ -s \ -initrd rootfs.img \ -kernel bzImage \ -append &amp;#34;console=ttyS0 root=/dev/sda rw nokaslr quiet&amp;#34; \ -monitor /dev/null -m 128M -nographic \ -cpu kvm64,+smep   开启以下保护
+SMEP: 管理模式执行保护,保护内核是其不允许执行用户空间代码  而如何查看是否存在一些CPU保护呢？
+通过 cat /sys/devices/system/cpu/vulnerabilities/* 命令查看vulnerabilities目录下存在的CPU漏洞 &amp;quot;Not affected&amp;quot;	: 当前 CPU 不存在该漏洞 &amp;quot;Vulnerable&amp;quot;	: 当前 CPU 存在该漏洞且未采取相应缓解措施 &amp;quot;Mitigation: $M&amp;quot;: 当前 CPU 存在该漏洞但采取了相应缓解措施  1 2 3 4 5 6 7  / $ cat /sys/devices/system/cpu/vulnerabilities/* Mitigation: PTE Inversion Vulnerable: Clear CPU buffers attempted, no microcode; SMT Host state unknown Mitigation: PTI Vulnerable Mitigation: usercopy/swapgs barriers and __user pointer sanitization Mitigation: Full generic retpoline, STIBP: disabled, RSB filling   可以发现当前内核其实开启了PTI保护的,以上面的命令查看即可知道,QEMU启动脚本不能查看到所有保护</description>
+    </item>
+    
+  </channel>
+</rss>

@@ -1,0 +1,24 @@
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>FMYY&#39;S Note</title>
+    <link>https://note.fmyy.pro/</link>
+    <description>Recent content on FMYY&#39;S Note</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-us</language>
+    <lastBuildDate>Mon, 14 Jun 2021 00:58:03 +0800</lastBuildDate>
+    <atom:link href="https://note.fmyy.pro/" rel="self" type="application/rss+xml" />
+
+    
+      <item>
+        <title>Articles</title>
+        <link>https://note.fmyy.pro/articles/</link>
+        <pubDate>Mon, 14 Jun 2021 00:58:03 +0800</pubDate>
+        
+        <guid>https://note.fmyy.pro/articles/</guid>
+        <description>
+          
+        </description>
+      </item>
+    
+  </channel>
+</rss>

